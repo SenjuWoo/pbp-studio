@@ -72,6 +72,12 @@ def main():
 
         checks.append(("outside path blocked", code("/api/file?p=" + urllib.parse.quote(r"C:/Windows/win.ini")) == 403))
 
+        # a second instance must refuse the port instead of silently sharing it
+        second = subprocess.run([sys.executable, str(APP / "server.py"), "--no-browser"],
+                                env=env, capture_output=True, text=True, timeout=30)
+        checks.append(("second instance refused", second.returncode == 2
+                       and "already in use" in (second.stdout + second.stderr)))
+
         # raw request: urllib would normalise the ".." away before sending
         conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
         conn.request("GET", "/static/../server.py")
