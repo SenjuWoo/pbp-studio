@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.7.0 - limbs get a real AI pass, facing is in every prompt
+- **Limbs are no longer a flat LUT.** All 15 beefy pieces go through the same SwarmUI path as heads
+  and bodies, seeded with the LUT-recoloured limb and the limb's own contour as ControlNet. The LUT
+  is now only the fallback when the AI fails or erases the piece.
+- Limb prompts add "match the armour plating, colour palette, line weight and material style of the
+  head and body pieces, do not invent a different armour design".
+- Every prompt now ends with "do not flip or rotate the subject"; the exact angle per box was
+  already supplied by `regions.SLOT_PROMPTS`.
+- Blank/erased detection retries once at 0.15 lower creativity before falling back, and now measures
+  white only over opaque pixels (`_white_frac` was counting transparent background as white, so every
+  keyed piece read as blank and every generation ran twice).
+- Measured on a full run: limbs log `AI 0.45` (previously `limb LUT`), 0 blank fallbacks, runtime
+  180s vs 240s for the double-generation version.
+
 ## 0.6.2 - remove the knight wireframe, fix black limbs and the white cap
 - **No more stamping the template sketch over output.** `stamp_contour` is gone. Heads, bodies,
   sword, shields, hudicon, banner and backoffb get their alpha from their own generated image.

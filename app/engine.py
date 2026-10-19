@@ -29,7 +29,7 @@ from colorize import (
 from magics import magic_number
 
 APP_NAME = "PBP-Studio"
-APP_VERSION = "0.6.2"
+APP_VERSION = "0.7.0"
 APP_DATA = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / APP_NAME
 SETTINGS_FILE = APP_DATA / "settings.json"
 TEMPLATE_CACHE = APP_DATA / "template" / "painting.png"
@@ -884,12 +884,9 @@ class Engine:
                 crop = base.crop((x, y, x + w, y + h)).convert("RGB")
                 crop = clear_border(crop, 3)          # white corner ticks never enter a piece
                 flat, bmode = colorize_box(crop, role, base_col, accent_col)
-                out = flat
+                out = limb_lut(crop, base_col, accent_col) if (role == "limb" and not solid) else flat
                 how = "flat"
-                if not solid and role == "limb":
-                    out = limb_lut(crop, base_col, accent_col)
-                    how = "limb LUT"
-                elif not solid:
+                if not solid:
                     how = f"AI {creativity:.2f}"
                     seed = seed_base
                     prompt = detail_prompt(design, role, pal, part)
@@ -912,7 +909,13 @@ class Engine:
                                                   bg=HEAD_BG)
                         cn = None
                     else:
-                        use_init = src if src is not None else silhouette(crop, base_col)
+                        if role == "limb":
+                            # the LUT-recoloured template limb seeds the AI: material and line
+                            # work change, pose does not; the LUT stays the fallback
+                            use_init = limb_lut(crop, base_col, accent_col)
+                            crea = min(crea, 0.45)
+                        else:
+                            use_init = src if src is not None else silhouette(crop, base_col)
                         init_sq, box = square_pad(use_init)
                         cn = image_data_url(square_pad(contour_image(crop))[0]) if use_cn else None
                     ai, err = None, None
@@ -929,6 +932,9 @@ class Engine:
                             # the template's knight outline, and never a white cap left behind
                             ai = key_background(ai, bg=HEAD_BG if role == "head" else (255, 255, 255),
                                                 tol=30)
+                            if self._white_frac(ai.convert("RGB")) > 0.75 and attempt == 1:
+                                crea = max(0.2, crea - 0.15)   # blank: retry softer once
+                                continue
                             break
                         except Exception as e:
                             err = e
@@ -1046,7 +1052,9 @@ class Engine:
 
     @staticmethod
     def _white_frac(img: Image.Image) -> float:
-        """Fraction of near-white pixels -- used to detect a model that erased the fill."""
-        hist = img.convert("L").histogram()
-        total = sum(hist) or 1
-        return sum(hist[236:]) / total
+        """Fraction of near-white pixels among the opaque ones: detects an erased piece."""
+        a = np.asarray(img.convert("RGBA"))
+        opaque = a[..., 3] > 8
+        if not opaque.any():
+            return 1.0
+        return float((a[..., :3][opaque].min(axis=1) > 236).mean())

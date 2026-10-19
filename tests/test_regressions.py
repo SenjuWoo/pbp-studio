@@ -63,3 +63,14 @@ def test_head_variant_keeps_alpha_and_size():
         assert out.size == head.size, part
         assert out.mode == "RGBA", part
         assert (np.asarray(out)[..., 3] > 8).any(), f"{part} lost its sprite"
+
+
+def test_white_frac_ignores_transparent_pixels():
+    """A keyed piece must not read as 'blank' just because its background is transparent."""
+    from engine import Engine
+
+    clear = Image.new("RGBA", (10, 10), (255, 255, 255, 0))
+    assert Engine._white_frac(clear) == 1.0
+    half = Image.new("RGBA", (10, 10), (200, 30, 30, 255))
+    half.paste((255, 255, 255, 255), (0, 0, 5, 10))
+    assert abs(Engine._white_frac(half) - 0.5) < 0.01
