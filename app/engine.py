@@ -29,7 +29,7 @@ from colorize import (
 from magics import magic_number
 
 APP_NAME = "PBP-Studio"
-APP_VERSION = "0.6.0"
+APP_VERSION = "0.6.1"
 APP_DATA = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / APP_NAME
 SETTINGS_FILE = APP_DATA / "settings.json"
 TEMPLATE_CACHE = APP_DATA / "template" / "painting.png"
@@ -489,9 +489,16 @@ def square_unpad(img: Image.Image, box, size_wh):
 
 
 def head_from_banner(banner: Image.Image) -> Image.Image:
-    """The banner is waist-up, so its top band is the head that seeds helm3."""
+    """The banner is waist-up, so its top band is the head that seeds helm3.
+
+    Headroom is added so the top of the skull is never clipped by the crop edge.
+    """
     w, h = banner.size
-    return banner.crop((int(w * 0.12), 0, int(w * 0.88), int(h * 0.55))).resize((w, h), Image.LANCZOS)
+    top = banner.crop((int(w * 0.10), 0, int(w * 0.90), int(h * 0.60)))
+    pad = int(top.height * 0.10)
+    canvas = Image.new("RGB", (top.width, top.height + pad), "white")
+    canvas.paste(top, (0, pad))
+    return canvas
 
 
 def head_variant(src: Image.Image, part: str) -> Image.Image:
@@ -528,13 +535,17 @@ def stack_body(head: Image.Image, body: Image.Image, size) -> Image.Image:
 
 
 def make_hudicon(head: Image.Image, size) -> Image.Image:
-    """HUD icon = the generated head scaled to fill the square, never a diffusion pass."""
+    """HUD icon = the generated head trimmed to its own bounds and scaled to fill the square."""
     w, h = size
-    src = head.convert("RGB")
+    src = head.convert("RGBA")
+    bb = src.getbbox()
+    if bb:
+        src = src.crop(bb)
     sw, sh = src.size
-    side = min(sw, sh)
-    face = src.crop(((sw - side) // 2, 0, (sw + side) // 2, side))
-    return face.resize((w, h), Image.LANCZOS)
+    side = max(sw, sh)
+    canvas = Image.new("RGBA", (side, side), (255, 255, 255, 255))
+    canvas.alpha_composite(src, ((side - sw) // 2, (side - sh) // 2))
+    return canvas.convert("RGB").resize((w, h), Image.LANCZOS)
 
 
 def strip_specks(img: Image.Image, min_px: int = 40) -> Image.Image:

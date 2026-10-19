@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.1 - headroom and a HUD icon that fills its box
+- The head anchor taken from the banner now gets 10% headroom, so the top of the skull is not
+  clipped by the crop edge (the "face cut through" look on the portrait).
+- `hudicon` trims the generated head to its own bounds and squares it before scaling, so the icon
+  fills its slot (coverage 0.60 -> 0.65, match against helm3 1.00).
+
 ## 0.6.0 - the ControlNet bug, and an anchor chain that keeps one character
 - **Fixed the bug that made 0.5.0 look like flat paint on a knight.** ControlNet was being sent with
   no init image on the first piece; SwarmUI rejects that ("Must specify either a ControlNet Image,
