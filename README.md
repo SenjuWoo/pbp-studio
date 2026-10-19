@@ -16,6 +16,17 @@ You type something like *"green knight with a red plume, gold trim"*, pick a nam
 The result is a normal PBP character folder — you can open the game, point the painter at the folder,
 see it live, test it, and publish it to the Steam Workshop from inside the game.
 
+## ControlNet (pose lock, recommended)
+The template's 39 boxes are specific poses - a front-facing head, a side view, a back view, fists.
+Without guidance the model paints a front view in every box. This app uses the official **Anima
+LLLite lineart** ControlNet to hold each box on the template's own line art:
+
+```bash
+curl -L -o "S:/Misc/SwarmUI/Models/model_patches/anima-lllite-lineart-1.safetensors"   https://huggingface.co/Comfy-Org/Anima-LLLite/resolve/main/model_patches/anima-lllite-lineart-1.safetensors
+```
+
+7.8 MB, then restart SwarmUI. The app falls back to plain img2img with a warning if it is missing.
+
 ## Requirements
 
 - Windows 10/11, Python 3.10+ (the launcher creates a local `.venv`, nothing system-wide).

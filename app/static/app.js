@@ -45,6 +45,8 @@ async function refreshStatus() {
     if (document.activeElement !== $("scheduler")) $("scheduler").value = s.settings.scheduler || "";
     if (document.activeElement !== $("seed")) $("seed").value = s.settings.seed || "";
     $("palette_lock").checked = !!s.settings.palette_lock;
+    $("controlnet").checked = s.settings.controlnet !== false;
+    if (document.activeElement !== $("controlnet_strength")) $("controlnet_strength").value = String(s.settings.controlnet_strength ?? 1);
     if (document.activeElement !== $("name") && !$("name").value) $("name").value = s.settings.name || "";
     $("footer-info").textContent =
       `${s.app.name} v${s.app.version} — game: ${s.game_dir || "not found"} — local-only server`;
@@ -118,6 +120,8 @@ async function persistSettings() {
     scheduler: $("scheduler").value.trim(),
     seed: Number($("seed").value) || 0,
     palette_lock: $("palette_lock").checked,
+    controlnet: $("controlnet").checked,
+    controlnet_strength: Number($("controlnet_strength").value),
     name: $("name").value.trim(),
     magic: selectedMagic,
   };

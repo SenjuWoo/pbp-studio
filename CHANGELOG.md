@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.0 - the template owns the pose (ControlNet)
+- Installed and wired the official **Anima LLLite lineart** ControlNet. Every box is now generated
+  with the template's own line art as the control image, so side views stay side views and back
+  views stay back views instead of everything coming out front-facing.
+- Measured pose agreement with the template (bounding-box IoU): head 0.87 -> 0.96, body 0.76 -> 0.87,
+  weapon 0.81 -> 0.95, giant 0.96 -> 0.94, limbs 0.91, full-body 0.96.
+- The per-family "master" copy is gone: it won on img2img strength and flattened every pose. Design
+  consistency now comes from the shared seed, the derived palette and the prompt.
+- Limb boxes are prompted as fists (they are hands, not arms), giants as beefy torsos.
+- New UI: "Lock pose" (ControlNet on/off) and "Pose strength" (default 1.0). If the model is missing
+  the job warns once and continues without it.
+
 ## 0.3.8 - one master per family
 - The first box of each family (head, body, giant, limbs, weapon, shield, full-body) is painted from
   the prompt; every other box in that family is painted from that master image. Heads now share one

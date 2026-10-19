@@ -217,13 +217,52 @@ def test_negative_for():
     print("  negative prompt: knights only banned when unasked")
 
 
-def test_families_cover_roles():
-    """Every region role must belong to a family, or its master would be its own box."""
-    from regions import REGIONS, FAMILY
+def test_lineart_data_url():
+    """ControlNet input must be black ink on white, as a data URL."""
+    import base64
+    import io
 
-    missing = {r["role"] for r in REGIONS} - set(FAMILY)
-    assert not missing, f"roles without a family: {missing}"
-    print("  families: every role mapped")
+    from PIL import Image
+    from engine import lineart_data_url
+
+    crop = Image.new("RGB", (8, 8), "white")
+    crop.putpixel((4, 4), (0, 0, 0))
+    url = lineart_data_url(crop)
+    assert url.startswith("data:image/png;base64,")
+    img = Image.open(io.BytesIO(base64.b64decode(url.split(",", 1)[1]))).convert("RGB")
+    colours = {c for _, c in img.getcolors(64)}
+    assert colours <= {(0, 0, 0), (255, 255, 255)}, colours
+    print("  controlnet input: black on white")
+
+
+def test_controlnet_payload():
+    """generate() must send the ControlNet model/image/strength, and omit them when off."""
+    import base64
+    import io
+
+    from PIL import Image
+    from engine import CONTROLNET_MODEL, SwarmClient
+
+    class Fake(SwarmClient):
+        sent = None
+
+        def session(self):
+            return "s"
+
+        def _post(self, path, body, timeout=120):
+            Fake.sent = body
+            buf = io.BytesIO()
+            Image.new("RGB", (4, 4)).save(buf, "PNG")
+            return {"images": [{"data": base64.b64encode(buf.getvalue()).decode()}]}
+
+    c = Fake()
+    c.generate("p", 64, 64, controlnet="data:image/png;base64,AAA", controlnet_strength=1.2)
+    assert Fake.sent["controlnetmodel"] == CONTROLNET_MODEL
+    assert Fake.sent["controlnetstrength"] == 1.2
+    assert Fake.sent["controlnetpreprocessor"] == "None"
+    c.generate("p", 64, 64)
+    assert "controlnetmodel" not in Fake.sent, "controlnet leaked into a plain generation"
+    print("  controlnet: sent only when enabled")
 
 
 def main():

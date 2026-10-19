@@ -97,8 +97,3 @@ if __name__ == "__main__":
         x, y, w, h = r["rect"]
         assert 0 <= x and 0 <= y and x + w <= TEMPLATE_SIZE and y + h <= TEMPLATE_SIZE, r
     print("region map OK")
-
-
-# boxes that must share one design: the first one generated becomes the master for the rest
-FAMILY = {"head": "head", "hudicon": "head", "body": "body", "body_big": "giant",
-          "limb": "limb", "weapon": "weapon", "shield": "shield", "banner": "full", "bob": "full"}

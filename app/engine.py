@@ -21,19 +21,20 @@ from pathlib import Path
 from PIL import Image, ImageChops, ImageDraw
 import numpy as np
 
-from regions import REGIONS, TEMPLATE_SIZE, FAMILY
+from regions import REGIONS, TEMPLATE_SIZE
 from colorize import (colorize_box, parse_palette, palette_words as pal_words, has_colors,
                       detail_prompt, AI_NEGATIVE, negative_for, palette_lock, extract_palette)
 from magics import magic_number
 
 APP_NAME = "PBP-Studio"
-APP_VERSION = "0.3.8"
+APP_VERSION = "0.4.0"
 APP_DATA = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / APP_NAME
 SETTINGS_FILE = APP_DATA / "settings.json"
 TEMPLATE_CACHE = APP_DATA / "template" / "painting.png"
 OFFICIAL_TEMPLATE_URL = "https://www.castlecrashers.com/PBP/painting.png"
 
 DEFAULT_MODEL = "woomixAnima_v15"
+CONTROLNET_MODEL = "anima-lllite-lineart-1.safetensors"   # Anima LLLite lineart, locks the template pose
 SWARM_URL_DEFAULT = "http://localhost:7801"
 SWARM_ROOT_CANDIDATES = [
     os.environ.get("SWARMUI_ROOT", ""),
@@ -63,6 +64,8 @@ _default_settings = {
     "cfg": 3.0,
     "sampler": "rk_beta",
     "palette_lock": False,
+    "controlnet": True,
+    "controlnet_strength": 1.0,
     "scheduler": "beta57",
     "name": "",
     "magic": "Poison",
@@ -282,7 +285,7 @@ class SwarmClient:
     # --- generation ------------------------------------------------
     def generate(self, prompt, width, height, seed=0, init_png=None, creativity=0.4,
                  steps=20, cfg=6.0, model=DEFAULT_MODEL, timeout=900, negative=None,
-                 sampler="", scheduler=""):
+                 sampler="", scheduler="", controlnet=None, controlnet_strength=1.0):
         """Run one img2img (or txt2img when init_png is None). Returns a PIL RGB image."""
         body = {
             "session_id": self.session(),
@@ -298,6 +301,11 @@ class SwarmClient:
             body["sampler"] = sampler
         if scheduler:
             body["scheduler"] = scheduler
+        if controlnet:
+            body["controlnetimage"] = controlnet
+            body["controlnetmodel"] = CONTROLNET_MODEL
+            body["controlnetstrength"] = float(controlnet_strength)
+            body["controlnetpreprocessor"] = "None"
         if init_png is not None:
             buf = io.BytesIO()
             init_png.save(buf, "PNG")
@@ -384,6 +392,17 @@ def prep_init(crop: Image.Image, gw: int, gh: int) -> Image.Image:
     canvas = Image.new("RGB", (gw, gh), (255, 255, 255))
     canvas.paste(subject, ((gw - subject.width) // 2, (gh - subject.height) // 2))
     return canvas
+
+
+def lineart_data_url(crop: Image.Image) -> str:
+    """Template box line art as black-on-white, base64 data URL for ControlNet."""
+    arr = np.asarray(crop.convert("RGB")).astype(int)
+    ink = arr.min(axis=2) < 200
+    out = np.full(arr.shape, 255, np.uint8)
+    out[ink] = 0
+    buf = io.BytesIO()
+    Image.fromarray(out).save(buf, "PNG")
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
 
 
 def alpha_from_bg(rgb: Image.Image, thr: int = 238, erode: int = 1) -> Image.Image:
@@ -522,6 +541,8 @@ class Engine:
             cfg = float(p.get("cfg", self.settings.get("cfg", 3.0)))
             sampler = (p.get("sampler", self.settings.get("sampler", "")) or "").strip()
             lock = bool(p.get("palette_lock", self.settings.get("palette_lock", False)))
+            use_cn = bool(p.get("controlnet", self.settings.get("controlnet", True)))
+            cn_strength = float(p.get("controlnet_strength", self.settings.get("controlnet_strength", 1.0)))
             scheduler = (p.get("scheduler", self.settings.get("scheduler", "")) or "").strip()
             seed_base = int(p.get("seed", 0) or 0)
             if not seed_base and not solid:
@@ -567,7 +588,6 @@ class Engine:
             total = len(regions)
             ai_streak = 0
             derived = None
-            masters = {}
             for i, region in enumerate(regions, 1):
                 if job.cancel.is_set():
                     job.state, job.phase = "cancelled", "cancelled"
@@ -595,24 +615,25 @@ class Engine:
                         try:
                             # no colours named: let the model design the first piece freely (txt2img),
                             # then every other piece is painted to match its palette
-                            family = FAMILY.get(role, role)
-                            master = masters.get(family)
                             first_free = (not explicit) and derived is None and not solid
-                            # one master per family: every other box in the family is painted from it,
-                            # otherwise each box invents its own taco/burger/limb
-                            init = None if (first_free or master is None) else master.resize((gw, gh), Image.LANCZOS)
-                            strength = crea if (init is None or master is None) else min(crea, 0.55)
+                            # the template silhouette is the pose; ControlNet reinforces it
+                            init = flat.resize((gw, gh), Image.LANCZOS)
+                            strength = crea
+                            cn = lineart_data_url(crop) if use_cn else None
                             ai = self.swarm.generate(prompt, gw, gh, seed=seed,
-                                                     init_png=init if init is not None else (None if first_free else flat.resize((gw, gh), Image.LANCZOS)),
+                                                     init_png=None if first_free else init,
                                                      creativity=strength, steps=steps, cfg=cfg,
                                                      sampler=sampler, scheduler=scheduler,
-                                                     negative=negative_for(design + " " + extra))
+                                                     negative=negative_for(design + " " + extra),
+                                                     controlnet=cn, controlnet_strength=cn_strength)
                             ai = ai.convert("RGB").resize((w, h), Image.LANCZOS)
-                            if master is None:
-                                masters[family] = ai
                             break
                         except Exception as e:
                             err = e
+                            if use_cn and "controlnet" in str(e).lower():
+                                use_cn = False
+                                job.say("    ControlNet model not available - continuing without it")
+                                continue
                             if attempt == 1:
                                 time.sleep(1.5)
                     if ai is None:

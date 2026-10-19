@@ -272,9 +272,9 @@ def detail_prompt(design, role, palette_words=""):
     frag = {
         "head": "single character head, front view",
         "body": "single torso, front view",
-        "body_big": "single large torso",
-        "limb": "single arm piece",
-        "weapon": "single weapon",
+        "body_big": "single huge beefy torso",
+        "limb": "single cartoon fist, closed hand, knuckles facing the viewer",
+        "weapon": "single sword",
         "shield": "single shield",
         "hudicon": "single small character face icon",
         "banner": "single character standing holding a sword",
