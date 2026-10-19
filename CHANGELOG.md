@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.5.0 - per-slot poses, no knight tracing, clean limbs
+- **Per-slot pose text for all 39 boxes.** Every box now carries its own angle from the template map
+  (head 3/4 left, 3/4 right, profile, front, tilted, back-of-head with no face; bodies idle, landing,
+  running, spinning, back view; giant torsos walk frames, lying down, rear, falling at 45 degrees;
+  shield front vs side edge; sword vertical).
+- **ControlNet now gets the contour only.** The raw template line art was forcing the bucket helmet
+  and chest cross onto every character; the interior detail is stripped, the outline is kept.
+- **The img2img seed is a clean flat silhouette**, not the colorized knight sketch, so the model is
+  not painting over someone else's character.
+- **The 15 beefy limbs are painted programmatically** (the template's own limb shading tinted to the
+  character palette) instead of diffused. No more faces on biceps, no potatoes, and 15 fewer AI calls.
+- **Bold outlines are stamped back on** from the template contour, so pieces keep the thick Behemoth
+  line work regardless of what the model returns.
+- Style prompts now ask for Behemoth / Dan Paladin flat cel art, with anime and soft-shading banned.
+- Measured: pose agreement head 0.91, body 0.95, weapon 0.99, giant 0.93; outline coverage on the
+  piece rim head 0.97, body 0.99, weapon 0.99.
+
 ## 0.4.0 - the template owns the pose (ControlNet)
 - Installed and wired the official **Anima LLLite lineart** ControlNet. Every box is now generated
   with the template's own line art as the control image, so side views stay side views and back

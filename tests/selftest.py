@@ -217,22 +217,25 @@ def test_negative_for():
     print("  negative prompt: knights only banned when unasked")
 
 
-def test_lineart_data_url():
+def test_contour_data_url():
     """ControlNet input must be black ink on white, as a data URL."""
     import base64
     import io
 
     from PIL import Image
-    from engine import lineart_data_url
+    from engine import contour_data_url
 
-    crop = Image.new("RGB", (8, 8), "white")
-    crop.putpixel((4, 4), (0, 0, 0))
-    url = lineart_data_url(crop)
+    crop = Image.new("RGB", (64, 64), "white")
+    crop.paste((0, 0, 0), (8, 8, 56, 56))          # a filled square with a solid interior
+    crop.paste((255, 255, 255), (28, 28, 36, 36))  # plus an interior detail that must vanish
+    url = contour_data_url(crop)
     assert url.startswith("data:image/png;base64,")
     img = Image.open(io.BytesIO(base64.b64decode(url.split(",", 1)[1]))).convert("RGB")
-    colours = {c for _, c in img.getcolors(64)}
+    colours = {c for _, c in img.getcolors(64 * 64)}
     assert colours <= {(0, 0, 0), (255, 255, 255)}, colours
-    print("  controlnet input: black on white")
+    mid = img.getpixel((32, 32))
+    assert mid == (255, 255, 255), "interior detail leaked into the ControlNet contour"
+    print("  controlnet input: outline only, interior clean")
 
 
 def test_controlnet_payload():

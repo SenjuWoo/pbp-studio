@@ -22,12 +22,14 @@ from PIL import Image, ImageChops, ImageDraw
 import numpy as np
 
 from regions import REGIONS, TEMPLATE_SIZE
-from colorize import (colorize_box, parse_palette, palette_words as pal_words, has_colors,
+from colorize import (
+    flat_colorize,
+    shade_recolor,colorize_box, parse_palette, palette_words as pal_words, has_colors,
                       detail_prompt, AI_NEGATIVE, negative_for, palette_lock, extract_palette)
 from magics import magic_number
 
 APP_NAME = "PBP-Studio"
-APP_VERSION = "0.4.0"
+APP_VERSION = "0.5.0"
 APP_DATA = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / APP_NAME
 SETTINGS_FILE = APP_DATA / "settings.json"
 TEMPLATE_CACHE = APP_DATA / "template" / "painting.png"
@@ -394,15 +396,50 @@ def prep_init(crop: Image.Image, gw: int, gh: int) -> Image.Image:
     return canvas
 
 
-def lineart_data_url(crop: Image.Image) -> str:
-    """Template box line art as black-on-white, base64 data URL for ControlNet."""
+def contour_mask(crop: Image.Image):
+    """Boolean outline of the box's shape (no interior knight detail)."""
+    from scipy import ndimage
+
     arr = np.asarray(crop.convert("RGB")).astype(int)
     ink = arr.min(axis=2) < 200
+    filled = ndimage.binary_fill_holes(ndimage.binary_closing(ink, iterations=2))
+    return filled & ~ndimage.binary_erosion(filled, iterations=2)
+
+
+def stamp_contour(rgb: Image.Image, crop: Image.Image) -> Image.Image:
+    """Draw the template's own black outline over a generated piece: the Behemoth look."""
+    from scipy import ndimage
+
+    a = np.asarray(rgb.convert("RGB")).copy()
+    a[ndimage.binary_dilation(contour_mask(crop), iterations=1)] = (0, 0, 0)
+    return Image.fromarray(a)
+
+
+def contour_data_url(crop: Image.Image) -> str:
+    """Outline of the box's shape only - the pose without the knight's interior lines.
+
+    Feeding the raw template line art to ControlNet forces the bucket helmet and chest
+    cross onto every character, so only the silhouette contour is sent.
+    """
+    from scipy import ndimage
+
+    arr = np.asarray(crop.convert("RGB")).astype(int)
+    ink = arr.min(axis=2) < 200
+    filled = ndimage.binary_fill_holes(ndimage.binary_closing(ink, iterations=2))
+    edge = filled & ~ndimage.binary_erosion(filled, iterations=2)
     out = np.full(arr.shape, 255, np.uint8)
-    out[ink] = 0
+    out[edge] = 0
     buf = io.BytesIO()
     Image.fromarray(out).save(buf, "PNG")
     return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
+def silhouette(crop: Image.Image, base) -> Image.Image:
+    """Flat colour silhouette of the box, no line art: a clean img2img init."""
+    flat = flat_colorize(crop, base, base)
+    a = np.asarray(flat.convert("RGB")).astype(np.int16)
+    a[a.max(axis=2) < 90] = base
+    return Image.fromarray(a.astype(np.uint8), "RGB")
 
 
 def alpha_from_bg(rgb: Image.Image, thr: int = 238, erode: int = 1) -> Image.Image:
@@ -603,9 +640,13 @@ class Engine:
                 # 1) procedural colorize inside the official line art (fallback + AI init image)
                 flat, bmode = colorize_box(crop, role, base_col, accent_col)
                 out = flat
-                if not solid:
+                if not solid and role == "limb":
+                    # limbs are one grey reference shape in the template: recolour it, never
+                    # diffuse it (the model turns fists into potatoes and paints faces on them)
+                    out = shade_recolor(crop, base_col)
+                elif not solid:
                     # 2) AI redraw seeded by the flat fill: same pose and scale, real detail
-                    prompt = detail_prompt(design, role, pal)
+                    prompt = detail_prompt(design, role, pal, part)
                     gw, gh = gen_size(w, h)
                     crea = min(0.80, max(0.2, creativity))
                     seed = seed_base
@@ -617,16 +658,16 @@ class Engine:
                             # then every other piece is painted to match its palette
                             first_free = (not explicit) and derived is None and not solid
                             # the template silhouette is the pose; ControlNet reinforces it
-                            init = flat.resize((gw, gh), Image.LANCZOS)
+                            init = silhouette(crop, base_col).resize((gw, gh), Image.LANCZOS)
                             strength = crea
-                            cn = lineart_data_url(crop) if use_cn else None
+                            cn = contour_data_url(crop) if use_cn else None
                             ai = self.swarm.generate(prompt, gw, gh, seed=seed,
                                                      init_png=None if first_free else init,
                                                      creativity=strength, steps=steps, cfg=cfg,
                                                      sampler=sampler, scheduler=scheduler,
                                                      negative=negative_for(design + " " + extra),
                                                      controlnet=cn, controlnet_strength=cn_strength)
-                            ai = ai.convert("RGB").resize((w, h), Image.LANCZOS)
+                            ai = stamp_contour(ai.convert("RGB").resize((w, h), Image.LANCZOS), crop)
                             break
                         except Exception as e:
                             err = e

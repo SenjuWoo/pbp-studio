@@ -268,8 +268,10 @@ def palette_lock(rgb, base, accent, levels=6):
     return Image.fromarray(allowed[d.argmin(axis=1)].astype(np.uint8).reshape(q.shape), "RGB")
 
 
-def detail_prompt(design, role, palette_words=""):
-    frag = {
+def detail_prompt(design, role, palette_words="", part=""):
+    from regions import SLOT_PROMPTS
+
+    frag = SLOT_PROMPTS.get(part) or {
         "head": "single character head, front view",
         "body": "single torso, front view",
         "body_big": "single huge beefy torso",
@@ -281,7 +283,9 @@ def detail_prompt(design, role, palette_words=""):
         "bob": "single small full-body character",
     }.get(role, "single game piece")
     bits = [f"({design}:1.3), {palette_words}".strip(", "),
-            f"{frag}, thick black outlines, cel shaded, clean flat colors, crisp detail",
+            f"single isolated piece: {frag}, Behemoth Entertainment style, Dan Paladin style, "
+            "thick uniform black outline, flat cel shading, two-tone shading, bold vector cartoon, "
+            "high contrast, readable at small size",
             "single isolated 2D cartoon game sprite, centered, plain white background, "
             "no scene, no hands, no frame, no props, no text",
             "same character design in every piece, consistent outfit and colours"]
@@ -289,7 +293,8 @@ def detail_prompt(design, role, palette_words=""):
 
 
 AI_NEGATIVE = ("text, watermark, photo, realistic, 3d render, blurry, background scenery, multiple objects, "
-               "collage, grid, hands, holding, picture frame, border, easel, scenery")
+               "collage, grid, hands, holding, picture frame, border, easel, scenery, "
+               "anime, manga, soft shading, airbrush, gradient, painterly, sketch")
 
 
 def negative_for(design):

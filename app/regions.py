@@ -24,6 +24,43 @@ ROLE_PROMPTS = {
     "bob":       "a small full-body miniature version of the character",
 }
 
+# Per-slot pose text, from the template's own orientation map (every box is a different angle).
+# Without this the model paints a front view into every box.
+SLOT_PROMPTS = {
+    "helm": "head facing three-quarter left",
+    "helm2": "head facing slightly front-left",
+    "helm3": "head facing three-quarter right",
+    "helm4": "head in profile facing right",
+    "helm5": "head facing straight forward",
+    "helm.A": "head tilted back, flinch pose",
+    "helm.B": "back of the head, no face, no eyes, no mouth",
+    "pbod1": "chibi torso and legs standing, three-quarter right",
+    "pbodland": "chibi torso and legs crouched, landing frame",
+    "knightbodrun": "chibi torso and legs running, arms swinging",
+    "pbodspin": "chibi torso and legs tucked, mid-air spin",
+    "pbodback": "chibi torso and legs seen from behind",
+    "sword": "single sword standing vertically, tip up, hilt at the bottom",
+    "shield1": "shield seen from the front",
+    "shield2": "shield seen from the side, narrow edge only",
+    "bigbod1": "huge muscular torso and small legs, upright, three-quarter right, walk frame 1",
+    "bigbod2": "huge muscular torso and small legs, upright, three-quarter right, walk frame 2",
+    "bigbod3": "huge muscular torso and small legs, upright, three-quarter right, walk frame 3",
+    "bigbod4": "huge muscular torso lying horizontally on its back",
+    "bigbodback": "huge muscular torso seen from behind",
+    "bigbod911": "huge muscular torso tilted diagonally at 45 degrees, falling",
+    "bigarm1": "single muscular arm, bent elbow", "bigarm2": "single muscular arm, fist",
+    "bigarm3": "single muscular arm, outstretched", "bigarm4": "single muscular arm, raised",
+    "bigarm5": "single muscular arm, downward punch", "bigarm6": "single muscular arm, flexed",
+    "bigarm7": "single clenched fist", "bigarm8": "single muscular arm, forearm",
+    "bigarm9": "single muscular arm, elbow bent back",
+    "bigleft1": "single muscular left arm, open hand", "bigleft2": "single muscular left arm, fist",
+    "bighand1": "single clenched fist", "bigarmgrap": "single muscular arm, grabbing hand",
+    "bigarmthro": "single muscular arm, throwing", "bigarm911": "single muscular arm, raised up",
+    "hudicon": "close-up of the head filling the square icon",
+    "selectbanner": "waist-up character illustration, dynamic hero pose",
+    "backoffb": "full-body chibi character standing, three-quarter view",
+}
+
 ROLE_CREATIVITY = {   # default img2img denoise per role (UI slider overrides with an offset)
     "head": 0.72, "body": 0.70, "body_big": 0.70, "limb": 0.78,
     "weapon": 0.85, "shield": 0.85, "hudicon": 0.78, "banner": 0.75, "bob": 0.80,
