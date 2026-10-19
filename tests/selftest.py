@@ -175,6 +175,21 @@ def test_wait_ready_rejects_dead_backend():
     print("  backend: errored state raises")
 
 
+def test_palette_lock():
+    """Off-palette AI output is snapped to the character's own colours."""
+    from colorize import palette_lock
+
+    px = np.zeros((32, 32, 3), np.uint8)
+    px[:, :16] = (200, 40, 40)
+    px[:, 16:] = (30, 120, 60)
+    out = np.array(palette_lock(Image.fromarray(px), (30, 120, 60), (200, 40, 40)))
+    cols = {tuple(int(v) for v in c) for c in out.reshape(-1, 3)}
+    allowed = {(18, 18, 22), (16, 66, 33), (30, 120, 60), (55, 168, 93), (200, 40, 40), (255, 255, 255)}
+    assert cols <= allowed, f"invented colours survived: {cols - allowed}"
+    assert (30, 120, 60) in cols and (200, 40, 40) in cols
+    print("  palette lock: only the character's colours survive")
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

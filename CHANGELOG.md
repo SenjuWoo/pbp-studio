@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.4 - one character, not 39
+- All pieces now share one seed per job (it was a fresh random seed per piece, which is why the
+  helmet, body and arms looked like different characters).
+- AI output is snapped to the character's palette (outline, dark/base/light, accent, white), so a
+  piece can no longer invent its own colours.
+- Prompt asks for the same design in every piece.
+
 ## 0.3.3 - never ship a flat character again
 - The app now waits for a ComfyUI backend that can actually generate (a tiny test image), not just
   for SwarmUI's web port. "No backends available!" previously failed all 39 pieces in silence and

@@ -6,6 +6,7 @@
 # Everything here is stdlib + Pillow only, so the app runs on a bare Python install.
 import base64
 import io
+import random
 import json
 import os
 import re
@@ -22,11 +23,11 @@ import numpy as np
 
 from regions import REGIONS, TEMPLATE_SIZE
 from colorize import (colorize_box, parse_palette, palette_words as pal_words,
-                      detail_prompt, AI_NEGATIVE)
+                      detail_prompt, AI_NEGATIVE, palette_lock)
 from magics import magic_number
 
 APP_NAME = "PBP-Studio"
-APP_VERSION = "0.3.3"
+APP_VERSION = "0.3.4"
 APP_DATA = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / APP_NAME
 SETTINGS_FILE = APP_DATA / "settings.json"
 TEMPLATE_CACHE = APP_DATA / "template" / "painting.png"
@@ -508,6 +509,11 @@ class Engine:
             creativity = float(p.get("creativity", self.settings.get("creativity", 0.55)))
             steps = int(p.get("steps", self.settings.get("steps", 20)))
             seed_base = int(p.get("seed", 0) or 0)
+            if not seed_base and not solid:
+                # one seed for the whole job: separate random seeds per piece is why the
+                # helmet, body and arms looked like three different characters
+                seed_base = random.randint(1, 2**31 - 1)
+                job.say(f"Seed: {seed_base} (shared by all pieces)")
             base_col, accent_col = parse_palette(
                 design + " " + extra, p.get("color1") or "#3fae4a", p.get("color2") or "#c9303a")
             pal = pal_words(base_col, accent_col) + ((", " + extra) if extra else "")
@@ -544,7 +550,7 @@ class Engine:
                     prompt = detail_prompt(design, role, pal)
                     gw, gh = gen_size(w, h)
                     crea = min(0.80, max(0.2, creativity))
-                    seed = (seed_base + i) if seed_base else 0
+                    seed = seed_base
                     ai = None
                     err = None
                     for attempt in (1, 2):
@@ -574,7 +580,7 @@ class Engine:
                         if 1 - wf_ai < 0.03 or (wf_ai > 0.45 and wf_ai > wf_flat + 0.12):
                             job.say(f"    {part}: AI piece blank/erased, keeping flat fill")
                         else:
-                            out = ai
+                            out = palette_lock(ai, base_col, accent_col)
                 # the template is transparent inside its boxes; white background would
                 # render as white rectangles around every piece in game
                 out = out.convert("RGB")

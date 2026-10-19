@@ -224,6 +224,21 @@ def colorize_box(crop, role, base, accent):
     return shade_recolor(crop, base), mode
 
 
+def palette_lock(rgb, base, accent, levels=6):
+    """Snap a piece onto the character's palette.
+
+    Each box is generated separately, so the model invents its own colours per piece; without
+    this the helmet is red, the body green and the arms another green entirely.
+    """
+    dark = tuple(int(c * 0.55) for c in base)
+    light = tuple(min(255, int(c * 1.25 + 18)) for c in base)
+    allowed = np.array([(18, 18, 22), dark, base, light, accent, (255, 255, 255)], dtype=np.int32)
+    q = np.asarray(rgb.convert("RGB").quantize(colors=levels, method=Image.MEDIANCUT).convert("RGB"))
+    px = q.reshape(-1, 3).astype(np.int32)
+    d = ((px[:, None, :] - allowed[None, :, :]) ** 2).sum(axis=2)
+    return Image.fromarray(allowed[d.argmin(axis=1)].astype(np.uint8).reshape(q.shape), "RGB")
+
+
 def detail_prompt(design, role, palette_words=""):
     frag = {
         "head": "single helmet head, front view",
@@ -239,7 +254,8 @@ def detail_prompt(design, role, palette_words=""):
     bits = [f"{design}, {palette_words}".strip(", "),
             f"{frag}, thick black outlines, cel shaded, clean flat colors, crisp detail",
             "single isolated 2D cartoon game sprite, centered, plain white background, "
-            "no scene, no hands, no frame, no props, no text"]
+            "no scene, no hands, no frame, no props, no text",
+            "same character design in every piece, consistent outfit and colours"]
     return ", ".join(b for b in bits if b)
 
 
