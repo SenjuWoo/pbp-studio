@@ -27,8 +27,5 @@ jobs:
       - name: Compile check
         run: python -m compileall -q app
 
-      - name: Self-test (offline pipeline)
+      - name: Self-test (pipeline + alpha + server guard)
         run: python tests/selftest.py
-
-      - name: Server guard test (spawns the real server)
-        run: python tests/test_server_guard.py

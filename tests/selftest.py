@@ -106,6 +106,37 @@ def test_colorize_template():
     print(f"  real template: {populated} line-art boxes colorized ({src})")
 
 
+def test_alpha_cutout():
+    """Background cut out, enclosed white (eyes, trim) kept, real box keeps its ink."""
+    import numpy as np
+    from PIL import ImageDraw
+    from engine import alpha_from_bg
+
+    im = Image.new("RGB", (80, 80), "white")
+    ImageDraw.Draw(im).ellipse((20, 20, 60, 60), fill=(30, 30, 40))
+    a = np.array(alpha_from_bg(im))
+    assert a[0, 0] == 0 and a[-1, -1] == 0, "background must be transparent"
+    assert a[40, 40] == 255, "subject must stay opaque"
+
+    ring = Image.new("RGB", (80, 80), "white")
+    d = ImageDraw.Draw(ring)
+    d.ellipse((10, 10, 70, 70), fill=(20, 20, 20))
+    d.ellipse((30, 30, 50, 50), fill="white")
+    a2 = np.array(alpha_from_bg(ring))
+    assert a2[40, 40] == 255 and a2[0, 0] == 0, "enclosed white must stay opaque"
+    print("  alpha: background cut, enclosed white kept")
+
+
+def test_subject_palettes():
+    """No colour named -> subject scheme; a named colour still wins."""
+    from colorize import parse_palette
+
+    assert parse_palette("samurai warrior") == ((43, 47, 82), (201, 162, 39))
+    assert parse_palette("samurai in crimson armor")[0] == (168, 24, 44)
+    assert parse_palette("a ninja") == ((34, 37, 43), (176, 42, 42))
+    print("  palettes: archetypes + explicit override")
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
@@ -119,7 +150,10 @@ def main():
         except Exception as e:
             failed += 1
             print(f"ERROR {t.__name__}: {type(e).__name__}: {e}")
-    print(f"\n{len(tests) - failed}/{len(tests)} tests passed")
+    print()
+    import test_server_guard
+    failed += test_server_guard.main()
+    print(f"\n{len(tests)} pipeline tests + server guard: {'FAIL' if failed else 'ALL PASS'}")
     sys.exit(1 if failed else 0)
 
 
