@@ -1,5 +1,5 @@
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # only the two real suites; tests/test_*.py files are manual probes that call SwarmUI
-python_files = ["selftest.py", "test_server_guard.py"]
+python_files = ["selftest.py", "test_server_guard.py", "test_regressions.py"]
 addopts = "-q"
