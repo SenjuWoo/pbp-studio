@@ -35,15 +35,16 @@
       <label class="grow">Extra style words <input id="extra_style" placeholder="optional: e.g. watercolor, shiny, patterned"></label>
       <label>AI strength <input type="range" id="creativity" min="0.2" max="0.8" step="0.01" value="0.55">
         <span id="creativity-val">0.55</span></label>
-      <label>Quality <select id="steps">
-        <option value="14">fast</option>
-        <option value="20" selected>normal</option>
-        <option value="28">high</option>
-      </select></label>
+      <label>Steps <input id="steps" type="number" min="1" max="100" value="40" style="width:5em"></label>
+      <label>CFG <input id="cfg" type="number" min="1" max="30" step="0.5" value="3" style="width:5em"></label>
+    </div>
+    <div class="row">
+      <label class="grow">Sampler <input id="sampler" placeholder="leave empty for the model default"></label>
+      <label class="grow">Scheduler <input id="scheduler" placeholder="leave empty for the model default"></label>
     </div>
     <p class="hint">Colors are read from your description (e.g. "green knight with a red plume"); the
-      pickers below override them when AI detail is off. Keep detail strength low so the AI paints
-      inside the official template lines instead of redrawing the character.</p>
+      pickers below override them. AI strength is how far the AI may redraw each piece: 0.4 keeps the
+      official line art, 0.55 adds real detail. Sampler/scheduler apply to your SwarmUI model.</p>
     <div class="row">
       <label class="grow">Generation
         <select id="engine">

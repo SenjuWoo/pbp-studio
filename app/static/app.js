@@ -39,7 +39,11 @@ async function refreshStatus() {
       $("creativity").value = s.settings.creativity ?? 0.55;
       $("creativity-val").textContent = Number($("creativity").value).toFixed(2);
     }
-    if (document.activeElement !== $("steps")) $("steps").value = String(s.settings.steps || 20);
+    if (document.activeElement !== $("steps")) $("steps").value = String(s.settings.steps || 40);
+    if (document.activeElement !== $("cfg")) $("cfg").value = String(s.settings.cfg ?? 3);
+    if (document.activeElement !== $("sampler")) $("sampler").value = s.settings.sampler || "";
+    if (document.activeElement !== $("scheduler")) $("scheduler").value = s.settings.scheduler || "";
+    if (document.activeElement !== $("seed")) $("seed").value = s.settings.seed || "";
     if (document.activeElement !== $("name") && !$("name").value) $("name").value = s.settings.name || "";
     $("footer-info").textContent =
       `${s.app.name} v${s.app.version} — game: ${s.game_dir || "not found"} — local-only server`;
@@ -108,6 +112,10 @@ async function persistSettings() {
     game_dir: $("game_dir").value.trim(),
     creativity: Number($("creativity").value),
     steps: Number($("steps").value),
+    cfg: Number($("cfg").value),
+    sampler: $("sampler").value.trim(),
+    scheduler: $("scheduler").value.trim(),
+    seed: Number($("seed").value) || 0,
     name: $("name").value.trim(),
     magic: selectedMagic,
   };
@@ -161,6 +169,9 @@ $("btn-start").onclick = async () => {
       engine: $("engine").value,
       creativity: Number($("creativity").value),
       steps: Number($("steps").value),
+      cfg: Number($("cfg").value),
+      sampler: $("sampler").value.trim(),
+      scheduler: $("scheduler").value.trim(),
       seed: Number($("seed").value) || 0,
       output_dir: $("output_dir").value.trim(),
       color1: $("color1").dataset.touched ? $("color1").value : "",

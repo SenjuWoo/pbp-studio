@@ -59,7 +59,10 @@ _default_settings = {
     "template_path": "",
     "game_dir": "",
     "creativity": 0.55,
-    "steps": 20,
+    "steps": 40,
+    "cfg": 3.0,
+    "sampler": "rk_beta",
+    "scheduler": "beta57",
     "name": "",
     "magic": "Poison",
     "settings_version": 2,
@@ -73,11 +76,13 @@ def load_settings():
     except Exception:
         raw = {}
     s.update(raw)
-    # v1 -> v2: 0.40 was the old shipped default, not a deliberate choice
-    if int(raw.get("settings_version", 1)) < 2:
+    # v1 -> v3: 0.40/20 were the old shipped defaults, not deliberate choices
+    if int(raw.get("settings_version", 1)) < 3:
         if abs(float(s.get("creativity", 0.55)) - 0.40) < 1e-6:
             s["creativity"] = 0.55
-        s["settings_version"] = 2
+        if int(s.get("steps", 40) or 40) == 20:
+            s["steps"] = 40
+        s["settings_version"] = 3
         s["migrated_055"] = True
         try:
             APP_DATA.mkdir(parents=True, exist_ok=True)
@@ -275,7 +280,8 @@ class SwarmClient:
 
     # --- generation ------------------------------------------------
     def generate(self, prompt, width, height, seed=0, init_png=None, creativity=0.4,
-                 steps=20, cfg=6.0, model=DEFAULT_MODEL, timeout=900, negative=None):
+                 steps=20, cfg=6.0, model=DEFAULT_MODEL, timeout=900, negative=None,
+                 sampler="", scheduler=""):
         """Run one img2img (or txt2img when init_png is None). Returns a PIL RGB image."""
         body = {
             "session_id": self.session(),
@@ -287,6 +293,10 @@ class SwarmClient:
             "seed": int(seed) if seed else -1,
             "images": 1,
         }
+        if sampler:
+            body["sampler"] = sampler
+        if scheduler:
+            body["scheduler"] = scheduler
         if init_png is not None:
             buf = io.BytesIO()
             init_png.save(buf, "PNG")
@@ -507,7 +517,10 @@ class Engine:
             design = p.get("design", "").strip() or "a heroic cartoon knight"
             extra = p.get("extra_style", "")
             creativity = float(p.get("creativity", self.settings.get("creativity", 0.55)))
-            steps = int(p.get("steps", self.settings.get("steps", 20)))
+            steps = int(p.get("steps", self.settings.get("steps", 40)))
+            cfg = float(p.get("cfg", self.settings.get("cfg", 3.0)))
+            sampler = (p.get("sampler", self.settings.get("sampler", "")) or "").strip()
+            scheduler = (p.get("scheduler", self.settings.get("scheduler", "")) or "").strip()
             seed_base = int(p.get("seed", 0) or 0)
             if not seed_base and not solid:
                 # one seed for the whole job: separate random seeds per piece is why the
@@ -525,6 +538,15 @@ class Engine:
                 self.swarm.ensure_up(log=job.say)
                 # "up" is not "able to generate": wait for a real backend, or fail loudly
                 self.swarm.wait_ready(log=job.say, timeout_s=240)
+                if sampler or scheduler:
+                    # a fresh install may not have this sampler/scheduler; fall back instead of failing every piece
+                    try:
+                        self.swarm.generate("test", 128, 128, seed=1, steps=2, cfg=cfg,
+                                            sampler=sampler, scheduler=scheduler)
+                    except Exception as e:
+                        job.say(f"Sampler/scheduler {sampler or '-'}/{scheduler or '-'} not accepted "
+                                f"({str(e)[:120]}); using the model defaults.")
+                        sampler = scheduler = ""
 
             canvas = base.copy()
             sheet_cells = []
@@ -557,7 +579,9 @@ class Engine:
                         try:
                             ai = self.swarm.generate(prompt, gw, gh, seed=seed,
                                                      init_png=flat.resize((gw, gh), Image.LANCZOS),
-                                                     creativity=crea, steps=steps, negative=AI_NEGATIVE)
+                                                     creativity=crea, steps=steps, cfg=cfg,
+                                                     sampler=sampler, scheduler=scheduler,
+                                                     negative=AI_NEGATIVE)
                             ai = ai.convert("RGB").resize((w, h), Image.LANCZOS)
                             break
                         except Exception as e:
