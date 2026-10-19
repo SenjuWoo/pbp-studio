@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.5 - no more green default
+- When the description names no colour ("Taco boy"), the app no longer forces the green/red default
+  onto every piece. The first piece is generated freely, its palette is extracted, and every other
+  piece is painted and locked to that palette - so the character keeps the colours the subject implies.
+- Solid (no-AI) mode still uses the named colours or the archetype palette.
+
 ## 0.3.4 - one character, not 39
 - All pieces now share one seed per job (it was a fresh random seed per piece, which is why the
   helmet, body and arms looked like different characters).

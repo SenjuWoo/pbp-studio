@@ -190,6 +190,24 @@ def test_palette_lock():
     print("  palette lock: only the character's colours survive")
 
 
+def test_palette_source():
+    """A description without colours must not be treated as green/red."""
+    from colorize import has_colors, extract_palette
+
+    assert has_colors("green knight with a red plume")
+    assert has_colors("#3fae4a knight")
+    assert not has_colors("Taco boy")
+    assert not has_colors("a samurai")
+
+    px = np.zeros((32, 32, 3), np.uint8)
+    px[:, :16] = (196, 154, 119)
+    px[:, 16:] = (75, 31, 23)
+    base, accent = extract_palette(Image.fromarray(px))
+    assert base in {(196, 154, 119), (75, 31, 23)}
+    assert accent != base
+    print("  palette source: unnamed colours are left to the AI")
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

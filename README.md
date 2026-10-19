@@ -30,7 +30,8 @@ Double-click `START.bat` (first run installs Pillow/numpy/scipy into `.venv`).
 The UI opens at <http://127.0.0.1:8777/>.
 
 1. **Describe your character** — the first color you name becomes the armor color, the second the
-   accent (plume/belt/trim). *AI strength* is how far the model may redraw each piece: 0.40 stays
+   accent (plume/belt/trim). If you name no colour at all, the first piece is generated freely and
+   its palette is reused for the rest, so "taco boy" comes out taco-coloured instead of default green. *AI strength* is how far the model may redraw each piece: 0.40 stays
    close to the official line art, 0.55 (default) adds real detail, above 0.7 it starts inventing.
    *Steps* (40), *CFG* (3.0), *Sampler* (rk_beta) and *Scheduler* (beta57) are sent to SwarmUI and
    can be changed per job; empty sampler/scheduler means "model default", and if your SwarmUI does

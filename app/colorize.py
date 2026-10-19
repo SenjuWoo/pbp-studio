@@ -54,6 +54,35 @@ def _hex_to_rgb(h):
         return None
 
 
+def has_colors(text):
+    """True when the description actually names a colour (so the user chose the palette)."""
+    low = (text or "").lower()
+    return bool(re.search(r"#[0-9a-f]{6}\b", low)) or any(
+        re.search(r"\b" + re.escape(w), low) for w in COLOR_WORDS)
+
+
+def extract_palette(rgb, levels=8):
+    """Dominant colour and a contrasting second one, taken from a generated piece.
+
+    Used when the description names no colour: the first AI piece decides the palette instead of
+    the old green/red default, so "taco boy" comes out taco-coloured.
+    """
+    q = rgb.convert("RGB").quantize(colors=levels, method=Image.MEDIANCUT)
+    pal = q.getpalette() or []
+    cols = []
+    for cnt, idx in sorted(q.getcolors() or [], reverse=True):
+        c = tuple(pal[idx * 3: idx * 3 + 3])
+        if len(c) == 3 and 25 < max(c) and min(c) < 235:
+            cols.append((cnt, c))
+    if not cols:
+        return (128, 128, 128), (90, 90, 90)
+    base = cols[0][1]
+    rest = cols[1:5]
+    accent = max(rest, key=lambda cc: sum(abs(a - b) for a, b in zip(cc[1], base)))[1] if rest \
+        else tuple(int(v * 0.6) for v in base)
+    return base, accent
+
+
 def parse_palette(text, base_fallback="#3fae4a", accent_fallback="#c9303a"):
     """Base = first color the user names (armor), accent = second distinct (plume/trim)."""
     low = (text or "").lower()

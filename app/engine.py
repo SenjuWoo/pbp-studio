@@ -22,12 +22,12 @@ from PIL import Image, ImageChops, ImageDraw
 import numpy as np
 
 from regions import REGIONS, TEMPLATE_SIZE
-from colorize import (colorize_box, parse_palette, palette_words as pal_words,
-                      detail_prompt, AI_NEGATIVE, palette_lock)
+from colorize import (colorize_box, parse_palette, palette_words as pal_words, has_colors,
+                      detail_prompt, AI_NEGATIVE, palette_lock, extract_palette)
 from magics import magic_number
 
 APP_NAME = "PBP-Studio"
-APP_VERSION = "0.3.4"
+APP_VERSION = "0.3.5"
 APP_DATA = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / APP_NAME
 SETTINGS_FILE = APP_DATA / "settings.json"
 TEMPLATE_CACHE = APP_DATA / "template" / "painting.png"
@@ -527,10 +527,22 @@ class Engine:
                 # helmet, body and arms looked like three different characters
                 seed_base = random.randint(1, 2**31 - 1)
                 job.say(f"Seed: {seed_base} (shared by all pieces)")
-            base_col, accent_col = parse_palette(
-                design + " " + extra, p.get("color1") or "#3fae4a", p.get("color2") or "#c9303a")
-            pal = pal_words(base_col, accent_col) + ((", " + extra) if extra else "")
-            job.say(f"Palette: {pal}")
+            # the user's colours win; with none named, the first AI piece picks the palette
+            explicit = has_colors(design + " " + extra) or bool(p.get("color1") or p.get("color2"))
+            if explicit:
+                base_col, accent_col = parse_palette(
+                    design + " " + extra, p.get("color1") or "#3fae4a", p.get("color2") or "#c9303a")
+                pal = pal_words(base_col, accent_col) + ((", " + extra) if extra else "")
+                job.say(f"Palette: {pal}")
+            elif solid:
+                base_col, accent_col = parse_palette(
+                    design + " " + extra, p.get("color1") or "#3fae4a", p.get("color2") or "#c9303a")
+                pal = pal_words(base_col, accent_col) + ((", " + extra) if extra else "")
+                job.say(f"Palette: {pal}")
+            else:
+                base_col, accent_col = (235, 235, 235), (200, 200, 200)
+                pal = extra or ""
+                job.say("Palette: none named - the first piece decides it")
 
             if not solid:
                 job.phase = "backend"
@@ -552,6 +564,7 @@ class Engine:
             sheet_cells = []
             total = len(regions)
             ai_streak = 0
+            derived = None
             for i, region in enumerate(regions, 1):
                 if job.cancel.is_set():
                     job.state, job.phase = "cancelled", "cancelled"
@@ -577,8 +590,11 @@ class Engine:
                     err = None
                     for attempt in (1, 2):
                         try:
+                            # no colours named: let the model design the first piece freely (txt2img),
+                            # then every other piece is painted to match its palette
+                            first_free = (not explicit) and derived is None and not solid
                             ai = self.swarm.generate(prompt, gw, gh, seed=seed,
-                                                     init_png=flat.resize((gw, gh), Image.LANCZOS),
+                                                     init_png=None if first_free else flat.resize((gw, gh), Image.LANCZOS),
                                                      creativity=crea, steps=steps, cfg=cfg,
                                                      sampler=sampler, scheduler=scheduler,
                                                      negative=AI_NEGATIVE)
@@ -598,13 +614,18 @@ class Engine:
                                 f"fix SwarmUI (backends: errored/loading) and generate again.")
                     else:
                         ai_streak = 0
+                    if ai is not None and not explicit and derived is None:
+                        # first good piece defines the character's palette for every later box
+                        base_col, accent_col = extract_palette(ai)
+                        derived = (base_col, accent_col)
+                        job.say(f"Palette from the first piece: {base_col} / {accent_col}")
                     if ai is not None:
                         # guard: a blank or erased piece is worse than the clean fill
                         wf_ai, wf_flat = self._white_frac(ai), self._white_frac(flat)
                         if 1 - wf_ai < 0.03 or (wf_ai > 0.45 and wf_ai > wf_flat + 0.12):
                             job.say(f"    {part}: AI piece blank/erased, keeping flat fill")
                         else:
-                            out = palette_lock(ai, base_col, accent_col)
+                            out = palette_lock(ai, base_col, accent_col) if (explicit or derived) else ai
                 # the template is transparent inside its boxes; white background would
                 # render as white rectangles around every piece in game
                 out = out.convert("RGB")
