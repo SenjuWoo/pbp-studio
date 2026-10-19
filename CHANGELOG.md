@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.8 - one master per family
+- The first box of each family (head, body, giant, limbs, weapon, shield, full-body) is painted from
+  the prompt; every other box in that family is painted from that master image. Heads now share one
+  taco, giants share one giant, limbs share one arm.
+- Measured palette similarity between pieces: bodies 0.69 -> 0.81, limbs 0.49 -> 0.81,
+  full-body 0.38 -> 0.96, heads 0.56 -> 0.65 (pose changes limit heads).
+
 ## 0.3.7 - stop drawing knights
 - Role prompts no longer say "helmet head" / "torso armor", which was telling the model to draw a
   knight whatever you asked for. It is "character head" / "torso" now.

@@ -217,6 +217,15 @@ def test_negative_for():
     print("  negative prompt: knights only banned when unasked")
 
 
+def test_families_cover_roles():
+    """Every region role must belong to a family, or its master would be its own box."""
+    from regions import REGIONS, FAMILY
+
+    missing = {r["role"] for r in REGIONS} - set(FAMILY)
+    assert not missing, f"roles without a family: {missing}"
+    print("  families: every role mapped")
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

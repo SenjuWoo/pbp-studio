@@ -21,13 +21,13 @@ from pathlib import Path
 from PIL import Image, ImageChops, ImageDraw
 import numpy as np
 
-from regions import REGIONS, TEMPLATE_SIZE
+from regions import REGIONS, TEMPLATE_SIZE, FAMILY
 from colorize import (colorize_box, parse_palette, palette_words as pal_words, has_colors,
                       detail_prompt, AI_NEGATIVE, negative_for, palette_lock, extract_palette)
 from magics import magic_number
 
 APP_NAME = "PBP-Studio"
-APP_VERSION = "0.3.7"
+APP_VERSION = "0.3.8"
 APP_DATA = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / APP_NAME
 SETTINGS_FILE = APP_DATA / "settings.json"
 TEMPLATE_CACHE = APP_DATA / "template" / "painting.png"
@@ -567,6 +567,7 @@ class Engine:
             total = len(regions)
             ai_streak = 0
             derived = None
+            masters = {}
             for i, region in enumerate(regions, 1):
                 if job.cancel.is_set():
                     job.state, job.phase = "cancelled", "cancelled"
@@ -594,13 +595,21 @@ class Engine:
                         try:
                             # no colours named: let the model design the first piece freely (txt2img),
                             # then every other piece is painted to match its palette
+                            family = FAMILY.get(role, role)
+                            master = masters.get(family)
                             first_free = (not explicit) and derived is None and not solid
+                            # one master per family: every other box in the family is painted from it,
+                            # otherwise each box invents its own taco/burger/limb
+                            init = None if (first_free or master is None) else master.resize((gw, gh), Image.LANCZOS)
+                            strength = crea if (init is None or master is None) else min(crea, 0.55)
                             ai = self.swarm.generate(prompt, gw, gh, seed=seed,
-                                                     init_png=None if first_free else flat.resize((gw, gh), Image.LANCZOS),
-                                                     creativity=crea, steps=steps, cfg=cfg,
+                                                     init_png=init if init is not None else (None if first_free else flat.resize((gw, gh), Image.LANCZOS)),
+                                                     creativity=strength, steps=steps, cfg=cfg,
                                                      sampler=sampler, scheduler=scheduler,
                                                      negative=negative_for(design + " " + extra))
                             ai = ai.convert("RGB").resize((w, h), Image.LANCZOS)
+                            if master is None:
+                                masters[family] = ai
                             break
                         except Exception as e:
                             err = e
