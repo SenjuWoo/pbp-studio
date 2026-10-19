@@ -7,10 +7,10 @@ You type something like *"green knight with a red plume, gold trim"*, pick a nam
 **Generate character**, and the app:
 
 1. reads the palette out of your description,
-2. flat-colors every one of the 39 official template pieces **inside the game's own line art**
-   (so everything stays perfectly aligned with the game's sprites),
-3. runs a local AI detail pass over each piece (when a local SwarmUI/ComfyUI install is available)
-   for shading and trim, then stamps the official lines back on top,
+2. flat-colors every one of the 39 official template pieces inside the game's own line art (the
+   fallback, and the starting point for the AI),
+3. redraws each piece with the local AI at your chosen strength, cuts the white background out so
+   the sprite is transparent like the official template, and keeps the template's pose and scale,
 4. writes `painting.png` + `pbp.xml` into a folder the in-game painter can load and hot-reload.
 
 The result is a normal PBP character folder — you can open the game, point the painter at the folder,
@@ -30,8 +30,8 @@ Double-click `START.bat` (first run installs Pillow/numpy/scipy into `.venv`).
 The UI opens at <http://127.0.0.1:8777/>.
 
 1. **Describe your character** — the first color you name becomes the armor color, the second the
-   accent (plume/belt/trim). *AI detail strength* controls how much the model is allowed to restyle:
-   keep it low (default 0.40) so it paints inside the official lines instead of redrawing the knight.
+   accent (plume/belt/trim). *AI strength* is how far the model may redraw each piece: 0.40 stays
+   close to the official line art, 0.55 (default) adds real detail, above 0.7 it starts inventing.
 2. **Name & magic** — 26 in-game magics.
 3. **Output folder** — pick the folder the game will watch. Press *Generate character*.
 4. In game: **Painter Boss Paradise → Browse Folder** → pick that folder. The preview updates live.
@@ -42,11 +42,16 @@ The UI opens at <http://127.0.0.1:8777/>.
 
 ## How it works (short version)
 
-The official template is **line art**: black outlines on white, limbs pre-shaded. The game composes
-the knight from those exact boxes, so the art inside each box must keep the template geometry.
-PBP Studio therefore colorizes the line art procedurally first (enclosed-region fill with the
-parsed palette), and only then lets the AI add detail via img2img at low creativity, multiplying the
-original line art back over the result. The AI can restyle, but it can never move the character.
+The official template is **line art on a transparent background**: the game only draws the pixels
+that have alpha, so a piece painted on opaque white would show as a white box in game. PBP Studio
+therefore colorizes the line art procedurally first (enclosed-region fill with the parsed palette),
+seeds an img2img pass with that fill so the pose and scale stay put, and cuts the background out of
+the result - near-white pixels connected to the box edge become transparent, while enclosed white
+details (eyes, trim) stay opaque. With no AI backend the procedural fill is used as-is.
+
+Before generating, the app waits for a SwarmUI backend that can actually produce an image (a tiny
+test render). If the backend is dead it stops with an error and writes nothing, instead of quietly
+producing a flat character.
 
 - `app/regions.py` — the 39 draw-boxes of the official 2048×2048 template with their roles
 - `app/colorize.py` — palette parsing, enclosed-region fill, shading recolor, line stamping
