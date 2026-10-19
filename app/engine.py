@@ -25,7 +25,7 @@ from colorize import (colorize_box, parse_palette, palette_words as pal_words,
 from magics import magic_number
 
 APP_NAME = "PBP-Studio"
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.2.1"
 APP_DATA = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / APP_NAME
 SETTINGS_FILE = APP_DATA / "settings.json"
 TEMPLATE_CACHE = APP_DATA / "template" / "painting.png"

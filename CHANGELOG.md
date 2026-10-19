@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1 - fix: UI refused to load
+- The static UI was being filtered by the same path guard used for generated files, so `/` returned
+  `{"error": "path not allowed"}` on a fresh launch. The shipped `app/static` folder is now an
+  allowed root, and the guard uses a real path-containment check instead of a string prefix.
+
 ## 0.2.0 - first working build
 - Line-art-aware character generation: procedural flat colorization of all 39 official template
   boxes (adaptive region fill, enclosed-area palette assignment, shading-preserving limb recolor),

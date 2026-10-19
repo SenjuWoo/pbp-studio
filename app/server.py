@@ -27,7 +27,7 @@ _server_started = threading.Event()
 
 
 def allowed_roots():
-    roots = [APP_DATA.resolve()]
+    roots = [APP_DATA.resolve(), STATIC_DIR.resolve()]
     s = load_settings()
     for key in ("output_dir",):
         v = s.get(key)
@@ -64,7 +64,7 @@ class Handler(BaseHTTPRequestHandler):
     def _file(self, path: Path, cache=False):
         try:
             path = path.resolve()
-            if not any(str(path).startswith(str(r)) for r in allowed_roots()):
+            if not any(path.is_relative_to(r) for r in allowed_roots()):
                 return self._err("path not allowed", 403)
             data = path.read_bytes()
         except Exception as e:
