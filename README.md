@@ -1,5 +1,11 @@
 # PBP Studio
 
+> **HEAVILY WORK IN PROGRESS - NOT USABLE YET.**
+> The pipeline runs end to end and produces a valid `painting.png` + `pbp.xml`, but the generated
+> art does not yet look like a coherent Castle Crashers character. Poses, transparency and file
+> format are solved; design consistency and limb/body style matching are not. Expect broken output.
+> Shelved for now. Issues and PRs are welcome, but nothing here should be treated as finished.
+
 Turn a text idea into a **Castle Crashers custom character** for the *Painter Boss Paradise* DLC —
 local, offline-friendly, and as automatic as possible.
 
