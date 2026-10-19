@@ -18,14 +18,15 @@ import urllib.request
 from pathlib import Path
 
 from PIL import Image, ImageChops, ImageDraw
+import numpy as np
 
 from regions import REGIONS, TEMPLATE_SIZE
 from colorize import (colorize_box, parse_palette, palette_words as pal_words,
-                      detail_prompt, AI_NEGATIVE, multiply_lines, overlay_edges)
+                      detail_prompt, AI_NEGATIVE)
 from magics import magic_number
 
 APP_NAME = "PBP-Studio"
-APP_VERSION = "0.2.1"
+APP_VERSION = "0.3.0"
 APP_DATA = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / APP_NAME
 SETTINGS_FILE = APP_DATA / "settings.json"
 TEMPLATE_CACHE = APP_DATA / "template" / "painting.png"
@@ -55,7 +56,7 @@ _default_settings = {
     "swarm_root": "",
     "template_path": "",
     "game_dir": "",
-    "creativity": 0.4,
+    "creativity": 0.55,
     "steps": 20,
     "name": "",
     "magic": "Poison",
@@ -317,6 +318,27 @@ def prep_init(crop: Image.Image, gw: int, gh: int) -> Image.Image:
     return canvas
 
 
+def alpha_from_bg(rgb: Image.Image, thr: int = 238, erode: int = 1) -> Image.Image:
+    """Transparent background, opaque drawing.
+
+    The official template is transparent white inside the boxes; painting opaque white
+    would show as white rectangles in game. Near-white pixels connected to the box border
+    become transparent, while enclosed white details (eyes, trim) stay opaque.
+    """
+    from scipy import ndimage
+
+    low = np.asarray(rgb.convert("RGB")).min(axis=2)
+    white = low >= thr
+    lab, _ = ndimage.label(white)
+    edge = np.concatenate([lab[0], lab[-1], lab[:, 0], lab[:, -1]])
+    bg_labels = set(np.unique(edge)) - {0}
+    bg = np.isin(lab, list(bg_labels)) if bg_labels else np.zeros_like(white)
+    alpha = np.where(bg, 0, 255).astype(np.uint8)
+    if erode:
+        alpha = ndimage.binary_erosion(alpha > 0, iterations=erode).astype(np.uint8) * 255
+    return Image.fromarray(alpha, "L")
+
+
 def gen_size(w, h, target_min=512, cap=1024):
     """Upscale box to a diffusion-friendly size (min side ~ target_min, /8 aligned)."""
     scale = max(1.0, target_min / max(w, h))
@@ -427,11 +449,11 @@ class Engine:
             solid = p.get("engine", "ai") == "solid"
             design = p.get("design", "").strip() or "a heroic cartoon knight"
             extra = p.get("extra_style", "")
-            creativity = float(p.get("creativity", self.settings.get("creativity", 0.4)))
+            creativity = float(p.get("creativity", self.settings.get("creativity", 0.55)))
             steps = int(p.get("steps", self.settings.get("steps", 20)))
             seed_base = int(p.get("seed", 0) or 0)
             base_col, accent_col = parse_palette(
-                design + " " + extra, p.get("color1", "#3fae4a"), p.get("color2", "#c9303a"))
+                design + " " + extra, p.get("color1") or "#3fae4a", p.get("color2") or "#c9303a")
             pal = pal_words(base_col, accent_col) + ((", " + extra) if extra else "")
             job.say(f"Palette: {pal}")
 
@@ -456,31 +478,34 @@ class Engine:
                 job.say(f"[{i}/{total}] {part} ({role}) {w}x{h}"
                         + ("" if solid else f" - AI detail {creativity:.2f}"))
                 crop = base.crop((x, y, x + w, y + h)).convert("RGB")
-                # 1) procedural colorize inside the official line art (perfect geometry)
+                # 1) procedural colorize inside the official line art (fallback + AI init image)
                 flat, bmode = colorize_box(crop, role, base_col, accent_col)
-                if solid:
-                    out = flat
-                else:
-                    # 2) AI detail pass at low creativity, then lines stamped back
+                out = flat
+                if not solid:
+                    # 2) AI redraw seeded by the flat fill: same pose and scale, real detail
                     prompt = detail_prompt(design, role, pal)
                     gw, gh = gen_size(w, h)
-                    init_up = flat.resize((gw, gh), Image.LANCZOS)
-                    crea = min(0.75, max(0.2, creativity))
+                    crea = min(0.80, max(0.2, creativity))
                     seed = (seed_base + i) if seed_base else 0
-                    ai = self.swarm.generate(prompt, gw, gh, seed=seed, init_png=init_up,
-                                             creativity=crea, steps=steps, negative=AI_NEGATIVE)
-                    ai = ai.convert("RGB").resize((w, h), Image.LANCZOS)
-                    if bmode == "lineart":
-                        # guard: if the model erased the colorization, keep the procedural fill
+                    ai = None
+                    try:
+                        ai = self.swarm.generate(prompt, gw, gh, seed=seed,
+                                                 init_png=flat.resize((gw, gh), Image.LANCZOS),
+                                                 creativity=crea, steps=steps, negative=AI_NEGATIVE)
+                        ai = ai.convert("RGB").resize((w, h), Image.LANCZOS)
+                    except Exception as e:
+                        job.say(f"    {part}: AI failed ({e}), keeping flat fill")
+                    if ai is not None:
+                        # guard: a blank or erased piece is worse than the clean fill
                         wf_ai, wf_flat = self._white_frac(ai), self._white_frac(flat)
-                        if wf_ai > 0.45 and wf_ai > wf_flat + 0.12:
-                            job.say(f"    {part}: model erased the colors, keeping clean fill")
-                            out = flat
+                        if 1 - wf_ai < 0.03 or (wf_ai > 0.45 and wf_ai > wf_flat + 0.12):
+                            job.say(f"    {part}: AI piece blank/erased, keeping flat fill")
                         else:
-                            out = multiply_lines(ai, crop)
-                    else:
-                        out = overlay_edges(ai, crop)
-                out = out.convert("RGBA")
+                            out = ai
+                # the template is transparent inside its boxes; white background would
+                # render as white rectangles around every piece in game
+                out = out.convert("RGB")
+                out.putalpha(alpha_from_bg(out))
                 canvas.paste(out, (x, y))
                 sheet_cells.append((part, out.copy()))
                 job.done = i

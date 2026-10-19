@@ -23,6 +23,24 @@ COLOR_WORDS = {
     "black": (40, 40, 46), "dark": (52, 48, 60), "rainbow": (220, 90, 160),
 }
 
+# When the user names no colour at all ("Samurai"), pick a scheme that fits the subject
+# instead of the green/red default, which made everything look like the same knight.
+ARCHETYPES = {
+    ("samurai", "ronin", "shogun"): ("#2b2f52", "#c9a227"),
+    ("ninja", "shinobi", "assassin"): ("#22252b", "#b02a2a"),
+    ("knight", "paladin", "crusader", "templar"): ("#8a94a6", "#2f5d9e"),
+    ("pirate", "buccaneer", "corsair"): ("#6b3f24", "#b03030"),
+    ("robot", "mech", "cyborg", "android"): ("#9aa4ad", "#23c2d6"),
+    ("wizard", "mage", "witch", "sorcerer"): ("#4a2f7a", "#d4b13a"),
+    ("viking", "barbarian", "berserker"): ("#6d4b2f", "#8a2b2b"),
+    ("demon", "devil", "fiend"): ("#5a1f1f", "#e08a1e"),
+    ("angel", "seraph"): ("#e8e4d8", "#d4b13a"),
+    ("elf", "ranger", "archer"): ("#2f5a3a", "#6b4a2a"),
+    ("vampire", "undead", "skeleton", "ghost"): ("#2a2233", "#8a1f2f"),
+    ("soldier", "marine", "trooper", "merc"): ("#4a5a3a", "#2b2b2b"),
+    ("alien", "mutant"): ("#3d7a4a", "#8a3ad4"),
+}
+
 LINE_THRESHOLD = 232   # template lines are black..~210 grey; paper is ~250-255
 
 
@@ -45,6 +63,10 @@ def parse_palette(text, base_fallback="#3fae4a", accent_fallback="#c9303a"):
         if m:
             found.append((m.start(), rgb))
     found.sort()
+    if not found:
+        for words, (b_hex, a_hex) in ARCHETYPES.items():
+            if any(re.search(r"\b" + w, low) for w in words):
+                return _hex_to_rgb(b_hex), _hex_to_rgb(a_hex)
     base = found[0][1] if found else (_hex_to_rgb(base_fallback) or (58, 160, 62))
     accent = None
     for _, rgb in found[1:]:
@@ -215,8 +237,9 @@ def detail_prompt(design, role, palette_words=""):
         "bob": "single small full-body character",
     }.get(role, "single game piece")
     bits = [f"{design}, {palette_words}".strip(", "),
-            f"{frag}, painted over line art, coloring book style, flat colors, clean cel shading",
-            "simple 2D cartoon game sprite, plain white background, no scene, no hands, no frame, no props"]
+            f"{frag}, thick black outlines, cel shaded, clean flat colors, crisp detail",
+            "single isolated 2D cartoon game sprite, centered, plain white background, "
+            "no scene, no hands, no frame, no props, no text"]
     return ", ".join(b for b in bits if b)
 
 

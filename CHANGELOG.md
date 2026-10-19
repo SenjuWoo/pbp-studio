@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.0 - real sprites, transparent background
+- Pieces are now cut out: near-white background connected to the box border becomes transparent,
+  enclosed white details stay opaque. The official template is transparent inside its boxes, so the
+  old opaque white output would have shown as white rectangles around every part in game.
+- The AI pass now redraws each piece at the requested strength instead of barely tinting the guide;
+  the procedural fill is used as the init image and as the fallback, and blank/erased results are
+  rejected automatically.
+- Colour pickers only override the description when you actually change them; when no colour is
+  named, a scheme matching the subject is used (samurai -> indigo/gold, ninja -> black/red, ...)
+  instead of the old green/red default.
+- Default AI strength 0.40 -> 0.55, slider range up to 0.80.
+
 ## 0.2.1 - fix: UI refused to load
 - The static UI was being filtered by the same path guard used for generated files, so `/` returned
   `{"error": "path not allowed"}` on a fresh launch. The shipped `app/static` folder is now an

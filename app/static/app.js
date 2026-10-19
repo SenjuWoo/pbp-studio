@@ -36,7 +36,7 @@ async function refreshStatus() {
     });
     if (document.activeElement !== $("output_dir")) $("output_dir").value = s.settings.output_dir || "";
     if (document.activeElement !== $("creativity")) {
-      $("creativity").value = s.settings.creativity ?? 0.4;
+      $("creativity").value = s.settings.creativity ?? 0.55;
       $("creativity-val").textContent = Number($("creativity").value).toFixed(2);
     }
     if (document.activeElement !== $("steps")) $("steps").value = String(s.settings.steps || 20);
@@ -68,6 +68,8 @@ async function loadMagics() {
   if (fav) [...grid.children].forEach((c) => c.classList.toggle("sel", c.dataset.name === fav[1]));
 }
 
+$("color1").oninput = () => { $("color1").dataset.touched = "1"; };
+$("color2").oninput = () => { $("color2").dataset.touched = "1"; };
 $("creativity").oninput = () => { $("creativity-val").textContent = Number($("creativity").value).toFixed(2); };
 $("engine").onchange = () => { $("solid-opts").style.display = $("engine").value === "solid" ? "flex" : "none"; };
 [...$("chips").children].forEach((c) => c.onclick = () => { $("design").value = c.textContent; });
@@ -161,8 +163,8 @@ $("btn-start").onclick = async () => {
       steps: Number($("steps").value),
       seed: Number($("seed").value) || 0,
       output_dir: $("output_dir").value.trim(),
-      color1: $("color1").value,
-      color2: $("color2").value,
+      color1: $("color1").dataset.touched ? $("color1").value : "",
+      color2: $("color2").dataset.touched ? $("color2").value : "",
     });
     if (pollTimer) clearInterval(pollTimer);
     pollTimer = setInterval(async () => {
