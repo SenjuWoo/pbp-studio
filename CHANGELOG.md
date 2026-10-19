@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.2 - the launcher always starts
+- Fixed: after closing the window the port could still be in TIME_WAIT, and the strict bind made
+  START.bat fail on the next launch. The server now probes for a running instance first (and just
+  opens the browser), then binds normally, which is what Windows needs for an immediate restart.
+
 ## 0.3.1 - one server, quiet disconnects
 - The server refuses to share its port: a second instance now exits with a clear message instead
   of silently binding the same address (two servers on 8777 made the UI answer inconsistently).

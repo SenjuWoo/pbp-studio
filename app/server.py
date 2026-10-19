@@ -208,13 +208,31 @@ def install_to_game(body):
     return {"ok": True, "installed_to": str(dst)}
 
 
+def _server_answering():
+    """True when a PBP Studio instance already owns the port."""
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/api/status", timeout=1.5) as r:
+            return json.loads(r.read()).get("app", {}).get("name") == APP_NAME
+    except Exception:
+        return False
+
+
 def main():
     if not STATIC_DIR.exists():
         print("static/ missing next to server.py", file=sys.stderr)
         sys.exit(2)
 
+    url = f"http://127.0.0.1:{PORT}/"
+    if _server_answering():
+        print(f"{APP_NAME} is already running - opening {url}")
+        if "--no-browser" not in sys.argv:
+            webbrowser.open(url)
+        return
+
     class SingleServer(ThreadingHTTPServer):
-        allow_reuse_address = False  # a second instance must fail, not silently share the port
+        # Windows needs this to rebind right after a restart (TIME_WAIT); a real second
+        # instance is caught by the probe above instead.
+        allow_reuse_address = True
 
         def handle_error(self, request, client_address):
             # a tab closing mid-response is not an error worth a traceback
@@ -224,11 +242,10 @@ def main():
 
     try:
         httpd = SingleServer(("127.0.0.1", PORT), Handler)
-    except OSError:
-        print(f"{APP_NAME}: port {PORT} is already in use — is the app already running?\n"
-              f"Close the other window, or set PBP_PORT to a different port.", file=sys.stderr)
+    except OSError as e:
+        print(f"{APP_NAME}: could not listen on port {PORT} ({e}).\n"
+              f"Set PBP_PORT to a different port and run this file again.", file=sys.stderr)
         sys.exit(2)
-    url = f"http://127.0.0.1:{PORT}/"
     print(f"{APP_NAME} {APP_VERSION} serving at {url}")
     if "--no-browser" not in sys.argv:
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()
