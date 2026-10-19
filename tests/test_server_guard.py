@@ -88,5 +88,10 @@ def main():
     return 1 if bad else 0
 
 
+def test_server_guard():
+    """pytest entry point: the guard suite spawns the real server on a free port."""
+    assert main() == 0
+
+
 if __name__ == "__main__":
     sys.exit(main())
