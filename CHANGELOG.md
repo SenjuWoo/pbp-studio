@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.7 - stop drawing knights
+- Role prompts no longer say "helmet head" / "torso armor", which was telling the model to draw a
+  knight whatever you asked for. It is "character head" / "torso" now.
+- Unless the description mentions armour, "knight, plate armor, medieval helmet" are added to the
+  negative prompt.
+- The design is weighted 1.3x and the UI asks for a visual description ("two words gives you a
+  generic knight").
+
 ## 0.3.6 - colour depth restored
 - The palette lock is now opt-in ("Lock colours", off by default). On, it flattens each piece to six
   tones for maximum consistency; off, the AI keeps its full shading (thousands of colours per piece).

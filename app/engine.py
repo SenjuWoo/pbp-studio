@@ -23,11 +23,11 @@ import numpy as np
 
 from regions import REGIONS, TEMPLATE_SIZE
 from colorize import (colorize_box, parse_palette, palette_words as pal_words, has_colors,
-                      detail_prompt, AI_NEGATIVE, palette_lock, extract_palette)
+                      detail_prompt, AI_NEGATIVE, negative_for, palette_lock, extract_palette)
 from magics import magic_number
 
 APP_NAME = "PBP-Studio"
-APP_VERSION = "0.3.6"
+APP_VERSION = "0.3.7"
 APP_DATA = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / APP_NAME
 SETTINGS_FILE = APP_DATA / "settings.json"
 TEMPLATE_CACHE = APP_DATA / "template" / "painting.png"
@@ -599,7 +599,7 @@ class Engine:
                                                      init_png=None if first_free else flat.resize((gw, gh), Image.LANCZOS),
                                                      creativity=crea, steps=steps, cfg=cfg,
                                                      sampler=sampler, scheduler=scheduler,
-                                                     negative=AI_NEGATIVE)
+                                                     negative=negative_for(design + " " + extra))
                             ai = ai.convert("RGB").resize((w, h), Image.LANCZOS)
                             break
                         except Exception as e:

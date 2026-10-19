@@ -270,9 +270,9 @@ def palette_lock(rgb, base, accent, levels=6):
 
 def detail_prompt(design, role, palette_words=""):
     frag = {
-        "head": "single helmet head, front view",
-        "body": "single torso armor, front view",
-        "body_big": "single large torso armor",
+        "head": "single character head, front view",
+        "body": "single torso, front view",
+        "body_big": "single large torso",
         "limb": "single arm piece",
         "weapon": "single weapon",
         "shield": "single shield",
@@ -280,7 +280,7 @@ def detail_prompt(design, role, palette_words=""):
         "banner": "single character standing holding a sword",
         "bob": "single small full-body character",
     }.get(role, "single game piece")
-    bits = [f"{design}, {palette_words}".strip(", "),
+    bits = [f"({design}:1.3), {palette_words}".strip(", "),
             f"{frag}, thick black outlines, cel shaded, clean flat colors, crisp detail",
             "single isolated 2D cartoon game sprite, centered, plain white background, "
             "no scene, no hands, no frame, no props, no text",
@@ -290,3 +290,12 @@ def detail_prompt(design, role, palette_words=""):
 
 AI_NEGATIVE = ("text, watermark, photo, realistic, 3d render, blurry, background scenery, multiple objects, "
                "collage, grid, hands, holding, picture frame, border, easel, scenery")
+
+
+def negative_for(design):
+    """A knight model draws knights; only allow armour words when the design asks for them."""
+    import re as _re
+    low = (design or "").lower()
+    if _re.search(r"knight|armou?r|paladin|warrior|soldier|helmet|guard|squire|viking|samurai", low):
+        return AI_NEGATIVE
+    return AI_NEGATIVE + ", knight, plate armor, medieval helmet, knight helmet, castle guard"

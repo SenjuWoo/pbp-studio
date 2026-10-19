@@ -208,6 +208,15 @@ def test_palette_source():
     print("  palette source: unnamed colours are left to the AI")
 
 
+def test_negative_for():
+    """Armour is only banned when the description did not ask for it."""
+    from colorize import negative_for
+
+    assert "plate armor" not in negative_for("green knight with a red plume")
+    assert "plate armor" in negative_for("Taco boy")
+    print("  negative prompt: knights only banned when unasked")
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
