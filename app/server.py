@@ -216,6 +216,12 @@ def main():
     class SingleServer(ThreadingHTTPServer):
         allow_reuse_address = False  # a second instance must fail, not silently share the port
 
+        def handle_error(self, request, client_address):
+            # a tab closing mid-response is not an error worth a traceback
+            if isinstance(sys.exc_info()[1], (ConnectionError, OSError)):
+                return
+            super().handle_error(request, client_address)
+
     try:
         httpd = SingleServer(("127.0.0.1", PORT), Handler)
     except OSError:
