@@ -288,7 +288,7 @@ def detail_prompt(design, role, palette_words="", part=""):
             "high contrast, readable at small size",
             "single isolated 2D cartoon game sprite, centered, plain white background, "
             "no scene, no hands, no frame, no props, no text",
-            "same character design in every piece, consistent outfit and colours, "
+            "same character design in every piece, same helmet, same armour colours and materials as the head and body pieces, "
             "do not flip or rotate the subject"]
     if role == "limb":
         bits.append("match the armour plating, colour palette, line weight and material style of "

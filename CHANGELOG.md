@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.7.1 - limbs get their own design, clean edges, ordered sheet
+- **Limb init is now the plain colour silhouette**, not the LUT art, and the 0.45 creativity cap is
+  gone: limbs run at the normal 0.55, so the model can invent plating and sleeves instead of
+  repainting the template muscle. LUT remains the fallback only.
+- Limb prompt asks for "armour plating, colour palette, line weight and material style of the head and
+  body pieces"; every prompt now also says "same helmet, same armour colours and materials".
+- **White caps removed.** After the border flood fill, near-white components that touch the sprite's
+  own edge and are under 15% of its area are dropped; enclosed highlights (eyes) are kept because
+  they are not on the edge and a pale character is one large blob.
+- **Outline drawn at final resolution** (1px under 200px, 2px above). Drawn before the downscale it
+  blurred to grey, which is why 0.7.0's limbs lost their black line work.
+- **`fit_to_template` measures the largest ink blob**, not all ink: bigarm8's stray template bar no
+  longer becomes the target box, so the arm cannot be dragged onto the crop edge.
+- Limbs keep only their largest opaque blob, so a second arm or stray line cannot survive.
+- Contact sheet is sorted by template position (row, then x) instead of generation order.
+- Verified: limbs log `AI 0.55`; mean luminance of the limb pieces 123-139 (pitch black was ~10);
+  bigarm8 left 10 columns transparent; helm3 0% white in the top third.
+
 ## 0.7.0 - limbs get a real AI pass, facing is in every prompt
 - **Limbs are no longer a flat LUT.** All 15 beefy pieces go through the same SwarmUI path as heads
   and bodies, seeded with the LUT-recoloured limb and the limb's own contour as ControlNet. The LUT

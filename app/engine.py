@@ -29,7 +29,7 @@ from colorize import (
 from magics import magic_number
 
 APP_NAME = "PBP-Studio"
-APP_VERSION = "0.7.0"
+APP_VERSION = "0.7.1"
 APP_DATA = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / APP_NAME
 SETTINGS_FILE = APP_DATA / "settings.json"
 TEMPLATE_CACHE = APP_DATA / "template" / "painting.png"
@@ -416,6 +416,20 @@ def head_silhouette(size, base) -> Image.Image:
     return img
 
 
+def outline_piece(img: Image.Image, px: int = 2) -> Image.Image:
+    """Black contour at final size: a ring drawn before downscaling blurs to grey."""
+    from scipy import ndimage
+
+    a = np.asarray(img.convert("RGBA")).copy()
+    solid = a[..., 3] > 8
+    if not solid.any():
+        return img
+    ring = solid & ~ndimage.binary_erosion(solid, iterations=px)
+    a[ring, :3] = 0
+    a[ring, 3] = 255
+    return Image.fromarray(a, "RGBA")
+
+
 def fit_contain(piece: Image.Image, size, margin: float = 0.04) -> Image.Image:
     """Scale a finished sprite to sit inside the box with a small margin, aspect kept."""
     w, h = size
@@ -450,6 +464,10 @@ def fit_to_template(piece: Image.Image, crop: Image.Image) -> Image.Image:
         return piece
     ys, xs = np.where(m)
     ax0, ay0, ax1, ay1 = xs.min(), ys.min(), xs.max() + 1, ys.max() + 1
+    lab, n = ndimage.label(ink)
+    if n > 1:
+        sizes = ndimage.sum(ink, lab, range(1, n + 1))
+        ink = lab == int(np.argmax(sizes)) + 1
     ys, xs = np.where(ink)
     tx0, ty0, tx1, ty1 = xs.min(), ys.min(), xs.max() + 1, ys.max() + 1
     sprite = piece.crop((ax0, ay0, ax1, ay1))
@@ -568,6 +586,20 @@ def make_hudicon(head: Image.Image, size) -> Image.Image:
     return canvas
 
 
+def keep_largest_rgba(img: Image.Image) -> Image.Image:
+    """Keep only the biggest opaque blob: the model sometimes adds a second arm or a stray bar."""
+    from scipy import ndimage
+
+    a = np.asarray(img.convert("RGBA")).copy()
+    m = a[..., 3] > 8
+    lab, n = ndimage.label(m)
+    if n <= 1:
+        return img
+    sizes = ndimage.sum(m, lab, range(1, n + 1))
+    a[..., 3] = np.where(lab == int(np.argmax(sizes)) + 1, a[..., 3], 0)
+    return Image.fromarray(a, "RGBA")
+
+
 def keep_largest(img: Image.Image) -> Image.Image:
     """Keep only the biggest connected blob: kills stray lines like bigarm8's left bar."""
     from scipy import ndimage
@@ -672,9 +704,21 @@ def key_background(rgb: Image.Image, bg=(255, 255, 255), tol: int = 30,
     alpha = np.where(outside, 0, 255).astype(np.uint8)
     if erode:
         alpha = ndimage.binary_erosion(alpha > 0, iterations=erode).astype(np.uint8) * 255
+    solid = alpha > 0
+    # A white cap sits on the sprite's own edge; an eye highlight is enclosed by colour.
+    near_white = (a.min(axis=2) > 236) & solid
+    lab2, n2 = ndimage.label(near_white)
+    if n2:
+        ring = solid & ~ndimage.binary_erosion(solid, iterations=2)
+        touch = set(np.unique(lab2[ring]).tolist()) - {0}
+        sizes = ndimage.sum(near_white, lab2, range(1, n2 + 1))
+        small = {i for i, sz in enumerate(sizes, 1) if sz < 0.15 * solid.sum()}
+        caps = touch & small          # a pale character is one big blob, a cap is a small band
+        if caps:
+            solid &= ~np.isin(lab2, list(caps))
+            alpha = solid.astype(np.uint8) * 255
     rgba = np.dstack([a.astype(np.uint8), alpha])
     if outline:
-        solid = alpha > 0
         ring = solid & ~ndimage.binary_erosion(solid, iterations=outline)
         rgba[ring, :3] = 0
     return Image.fromarray(rgba, "RGBA")
@@ -910,10 +954,9 @@ class Engine:
                         cn = None
                     else:
                         if role == "limb":
-                            # the LUT-recoloured template limb seeds the AI: material and line
-                            # work change, pose does not; the LUT stays the fallback
-                            use_init = limb_lut(crop, base_col, accent_col)
-                            crea = min(crea, 0.45)
+                            # plain colour silhouette, not the LUT art: the model must be free to
+                            # invent armour and sleeves; LUT is only the failure fallback
+                            use_init = silhouette(crop, base_col)
                         else:
                             use_init = src if src is not None else silhouette(crop, base_col)
                         init_sq, box = square_pad(use_init)
@@ -977,10 +1020,17 @@ class Engine:
                 job.say(f"[{i}/{total}] {part} ({role}) {w}x{h} - {how}")
                 if out.mode != "RGBA":
                     out = key_background(out, bg=(255, 255, 255), tol=30)
-                if role == "body_big":
-                    out = fit_to_template(out, crop)      # giants may use the template's silhouette
-                elif role not in ("limb", "hudicon", "backoffb"):
+                if role == "limb":
+                    out = keep_largest_rgba(out)
+                if role in ("body_big", "limb"):
+                    # limbs and giants sit exactly where the template's own art sits, so the arm
+                    # cannot drift onto the crop edge
+                    out = fit_to_template(out, crop)
+                elif role not in ("hudicon", "backoffb"):
                     out = fit_contain(out, (w, h), 0.04)
+                # after the resize (a pre-resize ring blurs away); thin pieces get 1px so the
+                # outline cannot swallow the arm
+                out = outline_piece(out, 1 if min(out.size) < 200 else 2)
                 canvas.paste(out, (x, y))
                 sheet_cells.append((part, out.copy()))
                 job.done = i
@@ -1016,7 +1066,8 @@ class Engine:
                 rows = (len(sheet_cells) + cols - 1) // cols
                 sheet = Image.new("RGB", (cols * cell, rows * cell), (24, 24, 28))
                 d = ImageDraw.Draw(sheet)
-                for k, (part, img) in enumerate(sheet_cells):
+                pos = {r["part"]: (r["rect"][1], r["rect"][0]) for r in REGIONS}
+                for k, (part, img) in enumerate(sorted(sheet_cells, key=lambda pc: pos.get(pc[0], (0, 0)))):
                     sc = min((cell - 26) / img.width, (cell - 26) / img.height)
                     th = img.resize((max(1, int(img.width * sc)), max(1, int(img.height * sc))))
                     cx, cy = (k % cols) * cell, (k // cols) * cell
