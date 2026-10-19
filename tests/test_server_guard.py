@@ -45,9 +45,9 @@ def main():
 
     checks = []
     try:
-        for _ in range(60):
+        for _ in range(60):  # static page = instant; /api/status can wait on the template
             try:
-                get("/api/status")
+                get("/")
                 break
             except Exception:
                 time.sleep(0.25)

@@ -4,6 +4,7 @@
 import json
 import mimetypes
 import os
+import socket
 import subprocess
 import sys
 import threading
@@ -208,11 +209,18 @@ def install_to_game(body):
     return {"ok": True, "installed_to": str(dst)}
 
 
+def _port_open():
+    """Something is listening on our port (fast check; /api/status can be slow on first run)."""
+    with socket.socket() as s:
+        s.settimeout(0.5)
+        return s.connect_ex(("127.0.0.1", PORT)) == 0
+
+
 def _server_answering():
-    """True when a PBP Studio instance already owns the port."""
+    """True when the listener on the port is PBP Studio itself (static page = fast)."""
     try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/api/status", timeout=1.5) as r:
-            return json.loads(r.read()).get("app", {}).get("name") == APP_NAME
+        with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/", timeout=3) as r:
+            return b"PBP Studio" in r.read(4096)
     except Exception:
         return False
 
@@ -223,11 +231,15 @@ def main():
         sys.exit(2)
 
     url = f"http://127.0.0.1:{PORT}/"
-    if _server_answering():
-        print(f"{APP_NAME} is already running - opening {url}")
-        if "--no-browser" not in sys.argv:
-            webbrowser.open(url)
-        return
+    if _port_open():
+        if _server_answering():
+            print(f"{APP_NAME} is already running - opening {url}")
+            if "--no-browser" not in sys.argv:
+                webbrowser.open(url)
+            return
+        print(f"{APP_NAME}: port {PORT} is used by another program.\n"
+              f"Set PBP_PORT to a different port and run this file again.", file=sys.stderr)
+        sys.exit(2)
 
     class SingleServer(ThreadingHTTPServer):
         # Windows needs this to rebind right after a restart (TIME_WAIT); a real second
