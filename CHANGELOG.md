@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.6.0 - the ControlNet bug, and an anchor chain that keeps one character
+- **Fixed the bug that made 0.5.0 look like flat paint on a knight.** ControlNet was being sent with
+  no init image on the first piece; SwarmUI rejects that ("Must specify either a ControlNet Image,
+  or Init image") and the error handler read it as "model missing" and disabled ControlNet for the
+  whole job. Every piece after that ran uncontrolled. ControlNet is never sent without an init now,
+  and the fallback only fires on a real model error.
+- **Anchor chain instead of 39 independent drawings.** The banner is generated first with pure
+  txt2img and defines the character; helm3 is derived from the banner's head; the other six head
+  slots are mirror/squash/symmetry/tilt/wiped-face variants of helm3 at low denoise.
+- **Every generation is a 512x512 square** with the piece centred in a 12% margin, so the shared seed
+  produces the same latent structure in every slot, then the piece is cropped back and normalised
+  onto the template's own ink box (`fit_to_template`).
+- **hudicon is a crop of the generated head** (similarity to helm3: 0.99), not a diffusion pass.
+- **backoffb is the head stacked on the body** and refined at 0.40.
+- **Limbs use a three-tone LUT** (outline / muscle shadow / cuff) plus speck removal, so bigarm8's
+  stray bar is gone.
+- Shields are generated on the padded square, so shield2 is a narrow strip (15.7% coverage) instead
+  of a solid rectangle; the 3px border of every template crop is cleared so corner ticks never enter.
+- Measured: pose head 0.96, body 1.00, giant 0.99, backoffb 0.91, shield1 0.91; head-to-head
+  similarity 0.74 mean (was 0.56); hudicon 0.99 against helm3.
+
 ## 0.5.0 - per-slot poses, no knight tracing, clean limbs
 - **Per-slot pose text for all 39 boxes.** Every box now carries its own angle from the template map
   (head 3/4 left, 3/4 right, profile, front, tilted, back-of-head with no face; bodies idle, landing,

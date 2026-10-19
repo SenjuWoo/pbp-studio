@@ -18,7 +18,7 @@ import time
 import urllib.request
 from pathlib import Path
 
-from PIL import Image, ImageChops, ImageDraw
+from PIL import Image, ImageChops, ImageDraw, ImageOps
 import numpy as np
 
 from regions import REGIONS, TEMPLATE_SIZE
@@ -29,7 +29,7 @@ from colorize import (
 from magics import magic_number
 
 APP_NAME = "PBP-Studio"
-APP_VERSION = "0.5.0"
+APP_VERSION = "0.6.0"
 APP_DATA = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / APP_NAME
 SETTINGS_FILE = APP_DATA / "settings.json"
 TEMPLATE_CACHE = APP_DATA / "template" / "painting.png"
@@ -396,6 +396,177 @@ def prep_init(crop: Image.Image, gw: int, gh: int) -> Image.Image:
     return canvas
 
 
+HEAD_VARIANTS = {"helm": 0.36, "helm2": 0.38, "helm4": 0.42, "helm5": 0.40,
+                 "helm.A": 0.34, "helm.B": 0.40}
+
+
+def head_silhouette(size, base) -> Image.Image:
+    """Generic round head + neck, not the knight's bucket helmet: the character owns its shape."""
+    w, h = size
+    img = Image.new("RGB", (w, h), "white")
+    d = ImageDraw.Draw(img)
+    hw, hh = int(w * 0.86), int(h * 0.78)
+    x0, y0 = (w - hw) // 2, int(h * 0.04)
+    d.ellipse([x0, y0, x0 + hw, y0 + hh], fill=base)
+    nw = int(w * 0.34)
+    d.rectangle([w // 2 - nw // 2, y0 + hh - int(h * 0.05), w // 2 + nw // 2, h], fill=base)
+    return img
+
+
+def fit_to_template(piece: Image.Image, crop: Image.Image) -> Image.Image:
+    """Scale/centre a piece so it sits where the template's own art sits, and never as a slab.
+
+    Square padding shrinks the sprite inside its box, and a model that fills the canvas would
+    paste a rectangle; this normalises the drawn area back onto the template's ink box.
+    """
+    from scipy import ndimage
+
+    ink = np.asarray(crop.convert("RGB")).astype(int).min(axis=2) < 200
+    if ink.sum() < 50:
+        return piece
+    rgba = np.asarray(piece.convert("RGBA")).copy()
+    alpha = rgba[..., 3]
+    if (alpha > 8).mean() > 0.90:                      # filled the canvas: clip to the contour
+        keep = ndimage.binary_dilation(contour_mask(crop), iterations=2)
+        rgba[..., 3] = np.where(keep, alpha, 0)
+        piece = Image.fromarray(rgba, "RGBA")
+        alpha = rgba[..., 3]
+    m = alpha > 8
+    if m.sum() < 50:
+        return piece
+    ys, xs = np.where(m)
+    ax0, ay0, ax1, ay1 = xs.min(), ys.min(), xs.max() + 1, ys.max() + 1
+    ys, xs = np.where(ink)
+    tx0, ty0, tx1, ty1 = xs.min(), ys.min(), xs.max() + 1, ys.max() + 1
+    sprite = piece.crop((ax0, ay0, ax1, ay1))
+    scale = min((tx1 - tx0) / sprite.width, (ty1 - ty0) / sprite.height)
+    sprite = sprite.resize((max(1, int(sprite.width * scale)), max(1, int(sprite.height * scale))),
+                           Image.LANCZOS)
+    canvas = Image.new("RGBA", crop.size, (0, 0, 0, 0))
+    cx = (tx0 + tx1) // 2 - sprite.width // 2
+    cy = (ty0 + ty1) // 2 - sprite.height // 2
+    canvas.alpha_composite(sprite, (max(0, cx), max(0, cy)))
+    return canvas
+
+
+def clear_border(img: Image.Image, n: int = 3) -> Image.Image:
+    """White out the outer n pixels: the template has corner ticks that bleed into crops."""
+    a = np.asarray(img.convert("RGB")).copy()
+    a[:n, :] = 255
+    a[-n:, :] = 255
+    a[:, :n] = 255
+    a[:, -n:] = 255
+    return Image.fromarray(a)
+
+
+def image_data_url(img: Image.Image) -> str:
+    buf = io.BytesIO()
+    img.convert("RGB").save(buf, "PNG")
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
+def contour_image(crop: Image.Image) -> Image.Image:
+    mask = contour_mask(crop)
+    out = np.full(mask.shape + (3,), 255, np.uint8)
+    out[mask] = 0
+    return Image.fromarray(out)
+
+
+def square_pad(img: Image.Image, size: int = 512, margin: float = 0.12):
+    """Centre a piece on a square canvas so every generation shares one latent grid."""
+    w, h = img.size
+    s = (size * (1 - 2 * margin)) / max(w, h)
+    nw, nh = max(8, int(w * s)), max(8, int(h * s))
+    ox, oy = (size - nw) // 2, (size - nh) // 2
+    canvas = Image.new("RGB", (size, size), "white")
+    canvas.paste(img.convert("RGB").resize((nw, nh), Image.LANCZOS), (ox, oy))
+    return canvas, (ox, oy, nw, nh)
+
+
+def square_unpad(img: Image.Image, box, size_wh):
+    ox, oy, nw, nh = box
+    return img.crop((ox, oy, ox + nw, oy + nh)).resize(size_wh, Image.LANCZOS)
+
+
+def head_from_banner(banner: Image.Image) -> Image.Image:
+    """The banner is waist-up, so its top band is the head that seeds helm3."""
+    w, h = banner.size
+    return banner.crop((int(w * 0.12), 0, int(w * 0.88), int(h * 0.55))).resize((w, h), Image.LANCZOS)
+
+
+def head_variant(src: Image.Image, part: str) -> Image.Image:
+    """Same head, different angle: mirror, squash, symmetry, tilt, or wiped face for the back."""
+    w, h = src.size
+    out = src
+    if part in ("helm", "helm2"):
+        out = ImageOps.mirror(src)
+        if part == "helm2":
+            out = out.resize((int(w * 0.92), h), Image.LANCZOS)
+    elif part == "helm5":
+        out = Image.blend(src, ImageOps.mirror(src), 0.5)
+    elif part == "helm.A":
+        out = src.rotate(-12, resample=Image.BICUBIC, fillcolor="white")
+    elif part == "helm.B":
+        arr = np.asarray(ImageOps.mirror(src)).copy()
+        hh, ww = arr.shape[:2]
+        band = arr[int(hh * 0.30):int(hh * 0.78), int(ww * 0.12):int(ww * 0.88)]
+        arr[int(hh * 0.30):int(hh * 0.78), int(ww * 0.12):int(ww * 0.88)] = np.median(
+            band.reshape(-1, 3), axis=0).astype(np.uint8)
+        out = Image.fromarray(arr)
+    return out.resize((w, h), Image.LANCZOS)
+
+
+def stack_body(head: Image.Image, body: Image.Image, size) -> Image.Image:
+    """Head over body on one canvas: the Back Off Barbarian full-body slot."""
+    w, h = size
+    canvas = Image.new("RGB", (w, h), "white")
+    hs = head.resize((int(w * 0.86), int(h * 0.46)), Image.LANCZOS)
+    canvas.paste(hs, ((w - hs.width) // 2, int(h * 0.03)))
+    bs = body.resize((int(w * 0.92), int(h * 0.48)), Image.LANCZOS)
+    canvas.paste(bs, ((w - bs.width) // 2, int(h * 0.46)))
+    return canvas
+
+
+def make_hudicon(head: Image.Image, size) -> Image.Image:
+    """HUD icon = the generated head scaled to fill the square, never a diffusion pass."""
+    w, h = size
+    src = head.convert("RGB")
+    sw, sh = src.size
+    side = min(sw, sh)
+    face = src.crop(((sw - side) // 2, 0, (sw + side) // 2, side))
+    return face.resize((w, h), Image.LANCZOS)
+
+
+def strip_specks(img: Image.Image, min_px: int = 40) -> Image.Image:
+    """Drop detached slivers (e.g. the stray bar on the left of bigarm8)."""
+    from scipy import ndimage
+
+    a = np.asarray(img.convert("RGB"))
+    ink = a.min(axis=2) < 236
+    lab, n = ndimage.label(ink)
+    if n <= 1:
+        return img
+    sizes = ndimage.sum(ink, lab, range(1, n + 1))
+    keep = [i + 1 for i, sz in enumerate(sizes) if sz >= min_px]
+    mask = np.isin(lab, keep)
+    out = a.copy()
+    out[~mask] = 255
+    return Image.fromarray(out)
+
+
+def limb_lut(crop: Image.Image, base, accent) -> Image.Image:
+    """Three-tone remap of the template limb: black outline, muscle shadow, cuff band."""
+    rgb = np.asarray(crop.convert("RGB")).astype(np.float32)
+    lum = rgb.mean(axis=2)
+    out = np.empty_like(rgb)
+    out[...] = np.array(base, np.float32)
+    out[lum < 60] = (0, 0, 0)
+    out[(lum >= 60) & (lum < 165)] = np.array(base, np.float32) * 0.72
+    out[(lum >= 165) & (lum < 236)] = np.array(accent, np.float32)
+    out[lum >= 236] = 255
+    return strip_specks(Image.fromarray(out.astype(np.uint8)))
+
+
 def contour_mask(crop: Image.Image):
     """Boolean outline of the box's shape (no interior knight detail)."""
     from scipy import ndimage
@@ -625,53 +796,72 @@ class Engine:
             total = len(regions)
             ai_streak = 0
             derived = None
-            for i, region in enumerate(regions, 1):
-                if job.cancel.is_set():
-                    job.state, job.phase = "cancelled", "cancelled"
-                    job.say("Cancelled.")
-                    return
+            # --- generation plan -------------------------------------------------
+            # The banner anchors the design, helm3 anchors the head, everything else derives
+            # from them. Order matters: each piece may use an earlier one as its init image.
+            ORDER = ["selectbanner", "helm3", "helm", "helm2", "helm4", "helm5", "helm.A", "helm.B",
+                     "pbod1", "pbodland", "knightbodrun", "pbodspin", "pbodback",
+                     "bigbod1", "bigbod2", "bigbod3", "bigbod4", "bigbodback", "bigbod911",
+                     "sword", "shield1", "shield2", "backoffb", "hudicon"]
+            by_part = {r["part"]: r for r in REGIONS}
+            plan = [by_part[k] for k in ORDER if k in by_part]
+            plan += [r for r in REGIONS if r["role"] == "limb" and r["part"] not in ORDER]
+            total = len(plan)
+            made = {}
+            for i, region in enumerate(plan, 1):
                 x, y, w, h = region["rect"]
                 part, role = region["part"], region["role"]
                 job.current = f"{part} ({role})"
                 job.phase = "generating"
-                job.say(f"[{i}/{total}] {part} ({role}) {w}x{h}"
-                        + ("" if solid else f" - AI detail {creativity:.2f}"))
+                job.say(f"[{i}/{total}] {part} ({role}) {w}x{h}")
                 crop = base.crop((x, y, x + w, y + h)).convert("RGB")
-                # 1) procedural colorize inside the official line art (fallback + AI init image)
+                crop = clear_border(crop, 3)          # white corner ticks never enter a piece
                 flat, bmode = colorize_box(crop, role, base_col, accent_col)
                 out = flat
+                how = "flat"
                 if not solid and role == "limb":
-                    # limbs are one grey reference shape in the template: recolour it, never
-                    # diffuse it (the model turns fists into potatoes and paints faces on them)
-                    out = shade_recolor(crop, base_col)
+                    out = limb_lut(crop, base_col, accent_col)
+                    how = "limb LUT"
                 elif not solid:
-                    # 2) AI redraw seeded by the flat fill: same pose and scale, real detail
-                    prompt = detail_prompt(design, role, pal, part)
-                    gw, gh = gen_size(w, h)
-                    crea = min(0.80, max(0.2, creativity))
+                    how = f"AI {creativity:.2f}"
                     seed = seed_base
-                    ai = None
-                    err = None
+                    prompt = detail_prompt(design, role, pal, part)
+                    crea = min(0.85, max(0.2, creativity))
+                    src = None
+                    if part == "helm3" and made.get("selectbanner") is not None:
+                        src, crea = head_from_banner(made["selectbanner"]), 0.50
+                    elif part in HEAD_VARIANTS and made.get("helm3") is not None:
+                        src, crea = head_variant(made["helm3"], part), HEAD_VARIANTS[part]
+                    elif part == "backoffb" and made.get("helm3") is not None and made.get("pbod1") is not None:
+                        src, crea = stack_body(made["helm3"], made["pbod1"], (w, h)), 0.40
+                    if part == "selectbanner":
+                        # pure txt2img: the banner invents the character before anything copies it
+                        init_sq, box, cn, crea = None, None, None, 0.85
+                    elif role == "head":
+                        # heads derive from the head anchor (or a generic round head + neck) and
+                        # skip ControlNet: the knight's helmet outline must not be traced on
+                        init_sq, box = square_pad(src if src is not None
+                                                  else head_silhouette((w, h), base_col))
+                        cn = None
+                    else:
+                        use_init = src if src is not None else silhouette(crop, base_col)
+                        init_sq, box = square_pad(use_init)
+                        cn = image_data_url(square_pad(contour_image(crop))[0]) if use_cn else None
+                    ai, err = None, None
                     for attempt in (1, 2):
                         try:
-                            # no colours named: let the model design the first piece freely (txt2img),
-                            # then every other piece is painted to match its palette
-                            first_free = (not explicit) and derived is None and not solid
-                            # the template silhouette is the pose; ControlNet reinforces it
-                            init = silhouette(crop, base_col).resize((gw, gh), Image.LANCZOS)
-                            strength = crea
-                            cn = contour_data_url(crop) if use_cn else None
-                            ai = self.swarm.generate(prompt, gw, gh, seed=seed,
-                                                     init_png=None if first_free else init,
-                                                     creativity=strength, steps=steps, cfg=cfg,
+                            ai = self.swarm.generate(prompt, 512, 512, seed=seed,
+                                                     init_png=init_sq, creativity=crea,
+                                                     steps=steps, cfg=cfg,
                                                      sampler=sampler, scheduler=scheduler,
                                                      negative=negative_for(design + " " + extra),
                                                      controlnet=cn, controlnet_strength=cn_strength)
-                            ai = stamp_contour(ai.convert("RGB").resize((w, h), Image.LANCZOS), crop)
+                            ai = square_unpad(ai.convert("RGB"), box, (w, h))
+                            ai = stamp_contour(ai, crop)
                             break
                         except Exception as e:
                             err = e
-                            if use_cn and "controlnet" in str(e).lower():
+                            if use_cn and "controlnet" in str(e).lower() and "init image" not in str(e).lower():
                                 use_cn = False
                                 job.say("    ControlNet model not available - continuing without it")
                                 continue
@@ -680,35 +870,34 @@ class Engine:
                     if ai is None:
                         ai_streak += 1
                         job.say(f"    {part}: AI failed ({err})")
-                        # a dead backend must stop the job, not produce a flat-fill character
                         if ai_streak >= 4:
                             raise RuntimeError(
                                 f"AI backend stopped responding ({err}). Nothing was written - "
                                 f"fix SwarmUI (backends: errored/loading) and generate again.")
                     else:
                         ai_streak = 0
-                    if ai is not None and not explicit and derived is None:
-                        # first good piece defines the character's palette for every later box
-                        base_col, accent_col = extract_palette(ai)
-                        derived = (base_col, accent_col)
-                        pal = pal_words(base_col, accent_col) + ((", " + extra) if extra else "")
-                        job.say(f"Palette from the first piece: {pal}")
-                    if ai is not None:
-                        # guard: a blank or erased piece is worse than the clean fill
+                        made[part] = ai
+                        if not explicit and derived is None and part == "selectbanner":
+                            base_col, accent_col = extract_palette(ai)
+                            derived = (base_col, accent_col)
+                            pal = pal_words(base_col, accent_col) + ((", " + extra) if extra else "")
+                            job.say(f"Palette from the banner: {pal}")
                         wf_ai, wf_flat = self._white_frac(ai), self._white_frac(flat)
                         if 1 - wf_ai < 0.03 or (wf_ai > 0.45 and wf_ai > wf_flat + 0.12):
                             job.say(f"    {part}: AI piece blank/erased, keeping flat fill")
                         else:
-                            # off by default: the lock keeps pieces consistent but flattens the art to 6 tones
                             out = palette_lock(ai, base_col, accent_col) if (lock and (explicit or derived)) else ai
-                # the template is transparent inside its boxes; white background would
-                # render as white rectangles around every piece in game
+                            how = f"AI {crea:.2f}"
+                if part == "hudicon" and made.get("helm3") is not None:
+                    out = make_hudicon(made["helm3"], (w, h))     # no AI: reuse the head
+                    how = "head crop"
+                job.say(f"[{i}/{total}] {part} ({role}) {w}x{h} - {how}")
                 out = out.convert("RGB")
                 out.putalpha(alpha_from_bg(out))
+                out = fit_to_template(out, crop)
                 canvas.paste(out, (x, y))
                 sheet_cells.append((part, out.copy()))
                 job.done = i
-                # live preview
                 prev = canvas.resize((1024, 1024), Image.LANCZOS)
                 prev.save(job.job_dir / "live_preview.png")
                 job.result = {"preview": str(job.job_dir / "live_preview.png"),
