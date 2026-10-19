@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.6.2 - remove the knight wireframe, fix black limbs and the white cap
+- **No more stamping the template sketch over output.** `stamp_contour` is gone. Heads, bodies,
+  sword, shields, hudicon, banner and backoffb get their alpha from their own generated image.
+- **Alpha is keyed from the canvas border colour** (`key_background`), not "is it white": heads are
+  generated on mid-grey, so a white helmet cap cannot survive as background. A 2px black outline is
+  drawn on the sprite's own island instead of borrowing the knight's.
+- **Limbs no longer turn black.** The old threshold (`lum < 60` = outline) swallowed the template's
+  dark-grey muscle (RGB 45-65). New zones: outline `L < 22`, muscle `22-85` mapped to the primary
+  colour with shading preserved, cuff `>= 85` mapped to the accent. Only the largest connected blob
+  survives, so bigarm8's stray left bar is gone.
+- **hudicon** is the alpha-matted head with a 4px margin; **backoffb** is the head dropped onto the
+  body's neck on a transparent canvas - neither is diffused.
+- **Torsos are prompted headless** ("neck down, no head, no face") with face words added to the
+  negative prompt, so no faces appear on chests.
+- Self-check on the output atlas: bigarm1 13.9% near-black (limit 35%), helm3 0.0% white in the top
+  third (limit 5%), bigarm8 left 10 columns fully transparent, selectbanner 31% wireframe overlap
+  (limit 60%).
+
 ## 0.6.1 - headroom and a HUD icon that fills its box
 - The head anchor taken from the banner now gets 10% headroom, so the top of the skull is not
   clipped by the crop edge (the "face cut through" look on the portrait).

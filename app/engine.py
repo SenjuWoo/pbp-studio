@@ -29,7 +29,7 @@ from colorize import (
 from magics import magic_number
 
 APP_NAME = "PBP-Studio"
-APP_VERSION = "0.6.1"
+APP_VERSION = "0.6.2"
 APP_DATA = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / APP_NAME
 SETTINGS_FILE = APP_DATA / "settings.json"
 TEMPLATE_CACHE = APP_DATA / "template" / "painting.png"
@@ -396,14 +396,17 @@ def prep_init(crop: Image.Image, gw: int, gh: int) -> Image.Image:
     return canvas
 
 
-HEAD_VARIANTS = {"helm": 0.36, "helm2": 0.38, "helm4": 0.42, "helm5": 0.40,
-                 "helm.A": 0.34, "helm.B": 0.40}
+HEAD_VARIANTS = {"helm": 0.30, "helm2": 0.32, "helm4": 0.34, "helm5": 0.30,
+                 "helm.A": 0.30, "helm.B": 0.38}
+
+
+HEAD_BG = (128, 128, 128)
 
 
 def head_silhouette(size, base) -> Image.Image:
-    """Generic round head + neck, not the knight's bucket helmet: the character owns its shape."""
+    """Generic round head + neck on mid-grey: not the knight's helmet, and no white to keep."""
     w, h = size
-    img = Image.new("RGB", (w, h), "white")
+    img = Image.new("RGB", (w, h), HEAD_BG)
     d = ImageDraw.Draw(img)
     hw, hh = int(w * 0.86), int(h * 0.78)
     x0, y0 = (w - hw) // 2, int(h * 0.04)
@@ -411,6 +414,17 @@ def head_silhouette(size, base) -> Image.Image:
     nw = int(w * 0.34)
     d.rectangle([w // 2 - nw // 2, y0 + hh - int(h * 0.05), w // 2 + nw // 2, h], fill=base)
     return img
+
+
+def fit_contain(piece: Image.Image, size, margin: float = 0.04) -> Image.Image:
+    """Scale a finished sprite to sit inside the box with a small margin, aspect kept."""
+    w, h = size
+    iw, ih = int(w * (1 - 2 * margin)), int(h * (1 - 2 * margin))
+    s = min(iw / piece.width, ih / piece.height)
+    new = piece.resize((max(1, int(piece.width * s)), max(1, int(piece.height * s))), Image.LANCZOS)
+    canvas = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    canvas.alpha_composite(new, ((w - new.width) // 2, (h - new.height) // 2))
+    return canvas
 
 
 def fit_to_template(piece: Image.Image, crop: Image.Image) -> Image.Image:
@@ -472,14 +486,15 @@ def contour_image(crop: Image.Image) -> Image.Image:
     return Image.fromarray(out)
 
 
-def square_pad(img: Image.Image, size: int = 512, margin: float = 0.12):
+def square_pad(img: Image.Image, size: int = 512, margin: float = 0.12, bg=(255, 255, 255)):
     """Centre a piece on a square canvas so every generation shares one latent grid."""
     w, h = img.size
     s = (size * (1 - 2 * margin)) / max(w, h)
     nw, nh = max(8, int(w * s)), max(8, int(h * s))
     ox, oy = (size - nw) // 2, (size - nh) // 2
-    canvas = Image.new("RGB", (size, size), "white")
-    canvas.paste(img.convert("RGB").resize((nw, nh), Image.LANCZOS), (ox, oy))
+    canvas = Image.new("RGB", (size, size), bg)
+    piece = img.convert("RGBA").resize((nw, nh), Image.LANCZOS)
+    canvas.paste(piece, (ox, oy), piece)
     return canvas, (ox, oy, nw, nh)
 
 
@@ -494,10 +509,10 @@ def head_from_banner(banner: Image.Image) -> Image.Image:
     Headroom is added so the top of the skull is never clipped by the crop edge.
     """
     w, h = banner.size
-    top = banner.crop((int(w * 0.10), 0, int(w * 0.90), int(h * 0.60)))
+    top = banner.convert("RGBA").crop((int(w * 0.10), 0, int(w * 0.90), int(h * 0.60)))
     pad = int(top.height * 0.10)
-    canvas = Image.new("RGB", (top.width, top.height + pad), "white")
-    canvas.paste(top, (0, pad))
+    canvas = Image.new("RGB", (top.width, top.height + pad), HEAD_BG)
+    canvas.paste(top, (0, pad), top)
     return canvas
 
 
@@ -514,38 +529,59 @@ def head_variant(src: Image.Image, part: str) -> Image.Image:
     elif part == "helm.A":
         out = src.rotate(-12, resample=Image.BICUBIC, fillcolor="white")
     elif part == "helm.B":
-        arr = np.asarray(ImageOps.mirror(src)).copy()
+        arr = np.asarray(ImageOps.mirror(src).convert("RGBA")).copy()
         hh, ww = arr.shape[:2]
-        band = arr[int(hh * 0.30):int(hh * 0.78), int(ww * 0.12):int(ww * 0.88)]
-        arr[int(hh * 0.30):int(hh * 0.78), int(ww * 0.12):int(ww * 0.88)] = np.median(
-            band.reshape(-1, 3), axis=0).astype(np.uint8)
-        out = Image.fromarray(arr)
+        y0, y1 = int(hh * 0.30), int(hh * 0.78)
+        x0, x1 = int(ww * 0.12), int(ww * 0.88)
+        band = arr[y0:y1, x0:x1]
+        opaque = band[..., 3] > 8
+        if opaque.any():
+            arr[y0:y1, x0:x1, :3] = np.median(band[..., :3][opaque], axis=0).astype(np.uint8)
+        out = Image.fromarray(arr, "RGBA")
     return out.resize((w, h), Image.LANCZOS)
 
 
 def stack_body(head: Image.Image, body: Image.Image, size) -> Image.Image:
-    """Head over body on one canvas: the Back Off Barbarian full-body slot."""
+    """Back Off Barbarian full body: alpha-matted head dropped onto the body's neck, no gap."""
     w, h = size
-    canvas = Image.new("RGB", (w, h), "white")
-    hs = head.resize((int(w * 0.86), int(h * 0.46)), Image.LANCZOS)
-    canvas.paste(hs, ((w - hs.width) // 2, int(h * 0.03)))
-    bs = body.resize((int(w * 0.92), int(h * 0.48)), Image.LANCZOS)
-    canvas.paste(bs, ((w - bs.width) // 2, int(h * 0.46)))
+    canvas = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    bs = body.convert("RGBA").resize((int(w * 0.92), int(h * 0.50)), Image.LANCZOS)
+    by = h - bs.height
+    canvas.alpha_composite(bs, ((w - bs.width) // 2, by))
+    hs = head.convert("RGBA").resize((int(w * 0.84), int(h * 0.50)), Image.LANCZOS)
+    canvas.alpha_composite(hs, ((w - hs.width) // 2, max(0, by - int(hs.height * 0.86))))
     return canvas
 
 
 def make_hudicon(head: Image.Image, size) -> Image.Image:
-    """HUD icon = the generated head trimmed to its own bounds and scaled to fill the square."""
+    """HUD icon = the alpha-matted head, trimmed, scaled into the box with a 4px margin."""
     w, h = size
     src = head.convert("RGBA")
     bb = src.getbbox()
     if bb:
         src = src.crop(bb)
-    sw, sh = src.size
-    side = max(sw, sh)
-    canvas = Image.new("RGBA", (side, side), (255, 255, 255, 255))
-    canvas.alpha_composite(src, ((side - sw) // 2, (side - sh) // 2))
-    return canvas.convert("RGB").resize((w, h), Image.LANCZOS)
+    iw, ih = max(8, w - 8), max(8, h - 8)
+    s = min(iw / src.width, ih / src.height)
+    new = src.resize((max(1, int(src.width * s)), max(1, int(src.height * s))), Image.LANCZOS)
+    canvas = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    canvas.alpha_composite(new, ((w - new.width) // 2, (h - new.height) // 2))
+    return canvas
+
+
+def keep_largest(img: Image.Image) -> Image.Image:
+    """Keep only the biggest connected blob: kills stray lines like bigarm8's left bar."""
+    from scipy import ndimage
+
+    a = np.asarray(img.convert("RGB"))
+    ink = a.min(axis=2) < 236
+    lab, n = ndimage.label(ink)
+    if n <= 1:
+        return img
+    sizes = ndimage.sum(ink, lab, range(1, n + 1))
+    keep = int(np.argmax(sizes)) + 1
+    out = a.copy()
+    out[lab != keep] = 255
+    return Image.fromarray(out)
 
 
 def strip_specks(img: Image.Image, min_px: int = 40) -> Image.Image:
@@ -568,14 +604,16 @@ def strip_specks(img: Image.Image, min_px: int = 40) -> Image.Image:
 def limb_lut(crop: Image.Image, base, accent) -> Image.Image:
     """Three-tone remap of the template limb: black outline, muscle shadow, cuff band."""
     rgb = np.asarray(crop.convert("RGB")).astype(np.float32)
-    lum = rgb.mean(axis=2)
+    lum = 0.299 * rgb[..., 0] + 0.587 * rgb[..., 1] + 0.114 * rgb[..., 2]
     out = np.empty_like(rgb)
     out[...] = np.array(base, np.float32)
-    out[lum < 60] = (0, 0, 0)
-    out[(lum >= 60) & (lum < 165)] = np.array(base, np.float32) * 0.72
-    out[(lum >= 165) & (lum < 236)] = np.array(accent, np.float32)
+    out[lum < 22] = (0, 0, 0)                                  # outline only
+    muscle = (lum >= 22) & (lum < 85)                          # dark grey arm/hand fill
+    out[muscle] = np.array(base, np.float32) * (0.75 + 0.35 * ((lum[muscle] - 22) / 63.0))[:, None]
+    cuff = (lum >= 85) & (lum < 236)                           # light grey cuff band
+    out[cuff] = np.array(accent, np.float32) * (0.85 + 0.25 * ((lum[cuff] - 85) / 151.0))[:, None]
     out[lum >= 236] = 255
-    return strip_specks(Image.fromarray(out.astype(np.uint8)))
+    return keep_largest(Image.fromarray(np.clip(out, 0, 255).astype(np.uint8)))
 
 
 def contour_mask(crop: Image.Image):
@@ -586,15 +624,6 @@ def contour_mask(crop: Image.Image):
     ink = arr.min(axis=2) < 200
     filled = ndimage.binary_fill_holes(ndimage.binary_closing(ink, iterations=2))
     return filled & ~ndimage.binary_erosion(filled, iterations=2)
-
-
-def stamp_contour(rgb: Image.Image, crop: Image.Image) -> Image.Image:
-    """Draw the template's own black outline over a generated piece: the Behemoth look."""
-    from scipy import ndimage
-
-    a = np.asarray(rgb.convert("RGB")).copy()
-    a[ndimage.binary_dilation(contour_mask(crop), iterations=1)] = (0, 0, 0)
-    return Image.fromarray(a)
 
 
 def contour_data_url(crop: Image.Image) -> str:
@@ -622,6 +651,33 @@ def silhouette(crop: Image.Image, base) -> Image.Image:
     a = np.asarray(flat.convert("RGB")).astype(np.int16)
     a[a.max(axis=2) < 90] = base
     return Image.fromarray(a.astype(np.uint8), "RGB")
+
+
+def key_background(rgb: Image.Image, bg=(255, 255, 255), tol: int = 30,
+                   erode: int = 1, outline: int = 2) -> Image.Image:
+    """Remove a flat background colour from the canvas border and outline what is left.
+
+    Keying by "distance from the border colour" rather than "is it white" is what stops the
+    white helmet cap: the generation canvas is grey for heads, so nothing white is ambiguous.
+    """
+    from scipy import ndimage
+
+    a = np.asarray(rgb.convert("RGB")).astype(np.int16)
+    dist = np.abs(a - np.array(bg, np.int16)).max(axis=2)
+    bgmask = dist <= tol
+    lab, _ = ndimage.label(bgmask)
+    edge = np.concatenate([lab[0], lab[-1], lab[:, 0], lab[:, -1]])
+    bg_labels = set(np.unique(edge).tolist()) - {0}
+    outside = np.isin(lab, list(bg_labels)) if bg_labels else np.zeros_like(bgmask)
+    alpha = np.where(outside, 0, 255).astype(np.uint8)
+    if erode:
+        alpha = ndimage.binary_erosion(alpha > 0, iterations=erode).astype(np.uint8) * 255
+    rgba = np.dstack([a.astype(np.uint8), alpha])
+    if outline:
+        solid = alpha > 0
+        ring = solid & ~ndimage.binary_erosion(solid, iterations=outline)
+        rgba[ring, :3] = 0
+    return Image.fromarray(rgba, "RGBA")
 
 
 def alpha_from_bg(rgb: Image.Image, thr: int = 238, erode: int = 1) -> Image.Image:
@@ -852,7 +908,8 @@ class Engine:
                         # heads derive from the head anchor (or a generic round head + neck) and
                         # skip ControlNet: the knight's helmet outline must not be traced on
                         init_sq, box = square_pad(src if src is not None
-                                                  else head_silhouette((w, h), base_col))
+                                                  else head_silhouette((w, h), base_col),
+                                                  bg=HEAD_BG)
                         cn = None
                     else:
                         use_init = src if src is not None else silhouette(crop, base_col)
@@ -867,8 +924,11 @@ class Engine:
                                                      sampler=sampler, scheduler=scheduler,
                                                      negative=negative_for(design + " " + extra),
                                                      controlnet=cn, controlnet_strength=cn_strength)
-                            ai = square_unpad(ai.convert("RGB"), box, (w, h))
-                            ai = stamp_contour(ai, crop)
+                            ai = square_unpad(ai.convert("RGB"), box, (w, h)) if box else ai.convert("RGB")
+                            # key from the canvas border colour: the sprite's own alpha, never
+                            # the template's knight outline, and never a white cap left behind
+                            ai = key_background(ai, bg=HEAD_BG if role == "head" else (255, 255, 255),
+                                                tol=30)
                             break
                         except Exception as e:
                             err = e
@@ -893,19 +953,28 @@ class Engine:
                             derived = (base_col, accent_col)
                             pal = pal_words(base_col, accent_col) + ((", " + extra) if extra else "")
                             job.say(f"Palette from the banner: {pal}")
-                        wf_ai, wf_flat = self._white_frac(ai), self._white_frac(flat)
+                        wf_ai, wf_flat = self._white_frac(ai.convert("RGB")), self._white_frac(flat)
                         if 1 - wf_ai < 0.03 or (wf_ai > 0.45 and wf_ai > wf_flat + 0.12):
                             job.say(f"    {part}: AI piece blank/erased, keeping flat fill")
                         else:
-                            out = palette_lock(ai, base_col, accent_col) if (lock and (explicit or derived)) else ai
+                            if lock and (explicit or derived):
+                                out = key_background(palette_lock(ai.convert("RGB"), base_col, accent_col))
+                            else:
+                                out = ai
                             how = f"AI {crea:.2f}"
                 if part == "hudicon" and made.get("helm3") is not None:
                     out = make_hudicon(made["helm3"], (w, h))     # no AI: reuse the head
                     how = "head crop"
+                elif part == "backoffb" and made.get("helm3") is not None and made.get("pbod1") is not None:
+                    out = stack_body(made["helm3"], made["pbod1"], (w, h))   # no AI, no white fill
+                    how = "head+body"
                 job.say(f"[{i}/{total}] {part} ({role}) {w}x{h} - {how}")
-                out = out.convert("RGB")
-                out.putalpha(alpha_from_bg(out))
-                out = fit_to_template(out, crop)
+                if out.mode != "RGBA":
+                    out = key_background(out, bg=(255, 255, 255), tol=30)
+                if role == "body_big":
+                    out = fit_to_template(out, crop)      # giants may use the template's silhouette
+                elif role not in ("limb", "hudicon", "backoffb"):
+                    out = fit_contain(out, (w, h), 0.04)
                 canvas.paste(out, (x, y))
                 sheet_cells.append((part, out.copy()))
                 job.done = i
