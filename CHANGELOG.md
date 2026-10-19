@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.6 - colour depth restored
+- The palette lock is now opt-in ("Lock colours", off by default). On, it flattens each piece to six
+  tones for maximum consistency; off, the AI keeps its full shading (thousands of colours per piece).
+- When no colour is named, the first piece still decides the palette and the rest are prompted with
+  those colour words - consistency without quantising the art.
+
 ## 0.3.5 - no more green default
 - When the description names no colour ("Taco boy"), the app no longer forces the green/red default
   onto every piece. The first piece is generated freely, its palette is extracted, and every other

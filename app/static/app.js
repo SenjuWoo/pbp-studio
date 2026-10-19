@@ -44,6 +44,7 @@ async function refreshStatus() {
     if (document.activeElement !== $("sampler")) $("sampler").value = s.settings.sampler || "";
     if (document.activeElement !== $("scheduler")) $("scheduler").value = s.settings.scheduler || "";
     if (document.activeElement !== $("seed")) $("seed").value = s.settings.seed || "";
+    $("palette_lock").checked = !!s.settings.palette_lock;
     if (document.activeElement !== $("name") && !$("name").value) $("name").value = s.settings.name || "";
     $("footer-info").textContent =
       `${s.app.name} v${s.app.version} — game: ${s.game_dir || "not found"} — local-only server`;
@@ -116,6 +117,7 @@ async function persistSettings() {
     sampler: $("sampler").value.trim(),
     scheduler: $("scheduler").value.trim(),
     seed: Number($("seed").value) || 0,
+    palette_lock: $("palette_lock").checked,
     name: $("name").value.trim(),
     magic: selectedMagic,
   };

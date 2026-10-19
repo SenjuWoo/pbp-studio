@@ -27,7 +27,7 @@ from colorize import (colorize_box, parse_palette, palette_words as pal_words, h
 from magics import magic_number
 
 APP_NAME = "PBP-Studio"
-APP_VERSION = "0.3.5"
+APP_VERSION = "0.3.6"
 APP_DATA = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / APP_NAME
 SETTINGS_FILE = APP_DATA / "settings.json"
 TEMPLATE_CACHE = APP_DATA / "template" / "painting.png"
@@ -62,6 +62,7 @@ _default_settings = {
     "steps": 40,
     "cfg": 3.0,
     "sampler": "rk_beta",
+    "palette_lock": False,
     "scheduler": "beta57",
     "name": "",
     "magic": "Poison",
@@ -520,6 +521,7 @@ class Engine:
             steps = int(p.get("steps", self.settings.get("steps", 40)))
             cfg = float(p.get("cfg", self.settings.get("cfg", 3.0)))
             sampler = (p.get("sampler", self.settings.get("sampler", "")) or "").strip()
+            lock = bool(p.get("palette_lock", self.settings.get("palette_lock", False)))
             scheduler = (p.get("scheduler", self.settings.get("scheduler", "")) or "").strip()
             seed_base = int(p.get("seed", 0) or 0)
             if not seed_base and not solid:
@@ -618,14 +620,16 @@ class Engine:
                         # first good piece defines the character's palette for every later box
                         base_col, accent_col = extract_palette(ai)
                         derived = (base_col, accent_col)
-                        job.say(f"Palette from the first piece: {base_col} / {accent_col}")
+                        pal = pal_words(base_col, accent_col) + ((", " + extra) if extra else "")
+                        job.say(f"Palette from the first piece: {pal}")
                     if ai is not None:
                         # guard: a blank or erased piece is worse than the clean fill
                         wf_ai, wf_flat = self._white_frac(ai), self._white_frac(flat)
                         if 1 - wf_ai < 0.03 or (wf_ai > 0.45 and wf_ai > wf_flat + 0.12):
                             job.say(f"    {part}: AI piece blank/erased, keeping flat fill")
                         else:
-                            out = palette_lock(ai, base_col, accent_col) if (explicit or derived) else ai
+                            # off by default: the lock keeps pieces consistent but flattens the art to 6 tones
+                            out = palette_lock(ai, base_col, accent_col) if (lock and (explicit or derived)) else ai
                 # the template is transparent inside its boxes; white background would
                 # render as white rectangles around every piece in game
                 out = out.convert("RGB")

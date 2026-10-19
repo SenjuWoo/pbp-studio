@@ -35,8 +35,8 @@ The UI opens at <http://127.0.0.1:8777/>.
    close to the official line art, 0.55 (default) adds real detail, above 0.7 it starts inventing.
    *Steps* (40), *CFG* (3.0), *Sampler* (rk_beta) and *Scheduler* (beta57) are sent to SwarmUI and
    can be changed per job; empty sampler/scheduler means "model default", and if your SwarmUI does
-   not have them the job falls back to the model defaults with a warning. *Seed* is shared by every
-   piece - leave it empty for a random one per character, or pin it to reproduce a result.
+   not have them the job falls back to the model defaults with a warning. *Lock colours* (off by default) snaps every piece to the palette - more consistent, flatter art.
+   *Seed* is shared by every piece - leave it empty for a random one per character, or pin it to reproduce a result.
 2. **Name & magic** — 26 in-game magics.
 3. **Output folder** — pick the folder the game will watch. Press *Generate character*.
 4. In game: **Painter Boss Paradise → Browse Folder** → pick that folder. The preview updates live.
