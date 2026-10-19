@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.3 - never ship a flat character again
+- The app now waits for a ComfyUI backend that can actually generate (a tiny test image), not just
+  for SwarmUI's web port. "No backends available!" previously failed all 39 pieces in silence and
+  wrote a flat-fill character.
+- Each piece is retried once; if four pieces in a row fail the job stops with a clear error and
+  writes nothing, instead of producing a character with no AI art.
+- Existing settings that still held the old 0.40 default are moved to 0.55 once, even if an already
+  open page tries to save 0.40 again.
+
 ## 0.3.2 - the launcher always starts
 - Fixed: after closing the window the port could still be in TIME_WAIT, and the strict bind made
   START.bat fail on the next launch. The server now probes for a running instance first (and just

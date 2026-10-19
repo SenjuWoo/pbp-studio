@@ -26,12 +26,13 @@ from colorize import (colorize_box, parse_palette, palette_words as pal_words,
 from magics import magic_number
 
 APP_NAME = "PBP-Studio"
-APP_VERSION = "0.3.2"
+APP_VERSION = "0.3.3"
 APP_DATA = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / APP_NAME
 SETTINGS_FILE = APP_DATA / "settings.json"
 TEMPLATE_CACHE = APP_DATA / "template" / "painting.png"
 OFFICIAL_TEMPLATE_URL = "https://www.castlecrashers.com/PBP/painting.png"
 
+DEFAULT_MODEL = "woomixAnima_v15"
 SWARM_URL_DEFAULT = "http://localhost:7801"
 SWARM_ROOT_CANDIDATES = [
     os.environ.get("SWARMUI_ROOT", ""),
@@ -60,6 +61,7 @@ _default_settings = {
     "steps": 20,
     "name": "",
     "magic": "Poison",
+    "settings_version": 2,
 }
 
 
@@ -69,12 +71,28 @@ def load_settings():
         s.update(json.loads(SETTINGS_FILE.read_text(encoding="utf-8")))
     except Exception:
         pass
+    # v1 -> v2: 0.40 was the old shipped default, not a deliberate choice
+    if int(s.get("settings_version", 1)) < 2:
+        if abs(float(s.get("creativity", 0.55)) - 0.40) < 1e-6:
+            s["creativity"] = 0.55
+        s["settings_version"] = 2
+        s["migrated_055"] = True
+        try:
+            APP_DATA.mkdir(parents=True, exist_ok=True)
+            SETTINGS_FILE.write_text(json.dumps(s, indent=2), encoding="utf-8")
+        except Exception:
+            pass
     return s
 
 
 def save_settings(patch: dict):
     s = load_settings()
     s.update({k: v for k, v in patch.items() if v is not None})
+    # an already-open page still holds the old 0.40 default; don't let it undo the migration
+    if not s.get("migrated_055"):
+        if abs(float(s.get("creativity", 0.55)) - 0.40) < 1e-6:
+            s["creativity"] = 0.55
+        s["migrated_055"] = True
     APP_DATA.mkdir(parents=True, exist_ok=True)
     tmp = SETTINGS_FILE.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(s, indent=2), encoding="utf-8")
@@ -162,7 +180,45 @@ class SwarmClient:
         self.url = url.rstrip("/")
         self.root = root or self._find_root()
         self._session = None
+        self._ready = False
         self._lock = threading.Lock()
+
+    def wait_ready(self, log=print, timeout_s=180):
+        """Wait until a ComfyUI backend is running AND can actually generate.
+
+        "No backends available" is what a freshly started or crashed SwarmUI returns;
+        without this check every piece silently falls back to a flat fill.
+        """
+        if self._ready:
+            return True
+        t0 = time.time()
+        last = "no response"
+        while time.time() - t0 < timeout_s:
+            try:
+                backends = self._post("/API/ListBackends", {"session_id": self.session()}, timeout=15)
+                states = {k: v.get("status") for k, v in backends.items() if isinstance(v, dict)}
+                if any(s == "running" for s in states.values()):
+                    # running is not enough: prove it with a tiny real generation
+                    try:
+                        r = self._post("/API/GenerateText2Image", {
+                            "session_id": self.session(), "model": DEFAULT_MODEL,
+                            "prompt": "ok", "width": 128, "height": 128, "steps": 2,
+                            "cfgscale": 5, "seed": 1, "images": 1}, timeout=120)
+                        if r.get("images"):
+                            self._ready = True
+                            log("AI backend ready.")
+                            return True
+                        last = str(r)[:150]
+                    except Exception as e:
+                        last = str(e)[:150]
+                else:
+                    last = f"backends: {states or 'none'}"
+            except Exception as e:
+                last = str(e)[:150]
+            if time.time() - t0 > 8:
+                log(f"Waiting for the AI backend... ({last})")
+            time.sleep(4)
+        raise RuntimeError(f"AI backend never became ready ({last})")
 
     def _find_root(self):
         for c in SWARM_ROOT_CANDIDATES:
@@ -217,7 +273,7 @@ class SwarmClient:
 
     # --- generation ------------------------------------------------
     def generate(self, prompt, width, height, seed=0, init_png=None, creativity=0.4,
-                 steps=20, cfg=6.0, model="woomixAnima_v15", timeout=900, negative=None):
+                 steps=20, cfg=6.0, model=DEFAULT_MODEL, timeout=900, negative=None):
         """Run one img2img (or txt2img when init_png is None). Returns a PIL RGB image."""
         body = {
             "session_id": self.session(),
@@ -460,11 +516,13 @@ class Engine:
                 job.phase = "backend"
                 job.say("Checking local AI backend (SwarmUI)...")
                 self.swarm.ensure_up(log=job.say)
-                job.say("AI backend ready.")
+                # "up" is not "able to generate": wait for a real backend, or fail loudly
+                self.swarm.wait_ready(log=job.say, timeout_s=240)
 
             canvas = base.copy()
             sheet_cells = []
             total = len(regions)
+            ai_streak = 0
             for i, region in enumerate(regions, 1):
                 if job.cancel.is_set():
                     job.state, job.phase = "cancelled", "cancelled"
@@ -487,13 +545,28 @@ class Engine:
                     crea = min(0.80, max(0.2, creativity))
                     seed = (seed_base + i) if seed_base else 0
                     ai = None
-                    try:
-                        ai = self.swarm.generate(prompt, gw, gh, seed=seed,
-                                                 init_png=flat.resize((gw, gh), Image.LANCZOS),
-                                                 creativity=crea, steps=steps, negative=AI_NEGATIVE)
-                        ai = ai.convert("RGB").resize((w, h), Image.LANCZOS)
-                    except Exception as e:
-                        job.say(f"    {part}: AI failed ({e}), keeping flat fill")
+                    err = None
+                    for attempt in (1, 2):
+                        try:
+                            ai = self.swarm.generate(prompt, gw, gh, seed=seed,
+                                                     init_png=flat.resize((gw, gh), Image.LANCZOS),
+                                                     creativity=crea, steps=steps, negative=AI_NEGATIVE)
+                            ai = ai.convert("RGB").resize((w, h), Image.LANCZOS)
+                            break
+                        except Exception as e:
+                            err = e
+                            if attempt == 1:
+                                time.sleep(1.5)
+                    if ai is None:
+                        ai_streak += 1
+                        job.say(f"    {part}: AI failed ({err})")
+                        # a dead backend must stop the job, not produce a flat-fill character
+                        if ai_streak >= 4:
+                            raise RuntimeError(
+                                f"AI backend stopped responding ({err}). Nothing was written - "
+                                f"fix SwarmUI (backends: errored/loading) and generate again.")
+                    else:
+                        ai_streak = 0
                     if ai is not None:
                         # guard: a blank or erased piece is worse than the clean fill
                         wf_ai, wf_flat = self._white_frac(ai), self._white_frac(flat)
