@@ -119,9 +119,8 @@ def _valid_template(path: Path):
         # spot-check: the first head box should be mostly white (draw area)
         x, y, w, h = REGIONS[0]["rect"]
         crop = im.convert("RGB").crop((x, y, x + w, y + h))
-        px = list(crop.getdata())
-        whiteish = sum(1 for r, g, b in px if min(r, g, b) > 200)
-        return whiteish / len(px) > 0.3
+        px = np.asarray(crop)
+        return float((px.min(axis=2) > 200).mean()) > 0.3
     except Exception:
         return False
 

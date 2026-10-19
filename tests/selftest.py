@@ -7,6 +7,7 @@ import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app"))
 
+import numpy as np
 from PIL import Image, ImageDraw
 
 from regions import REGIONS, TEMPLATE_SIZE
@@ -94,12 +95,11 @@ def test_colorize_template():
         out, mode = colorize_box(crop, r["role"], base, accent)
         assert out.size == (w, h)
         # at least some pixels of the piece must be non-white (colored or line art)
-        px = list(out.getdata())
-        nonwhite = sum(1 for p in px if min(p) < 200) / len(px)
+        px = np.asarray(out.convert("RGB"))
+        nonwhite = (px.min(axis=2) < 200).mean()
         assert nonwhite > 0.02, f"{r['part']} looks empty"
         if mode == "lineart":
-            white = sum(1 for p in px if min(p) > 236) / len(px)
-            colored = sum(1 for p in px if max(p) - min(p) > 30) / len(px)
+            colored = ((px.max(axis=2).astype(int) - px.min(axis=2)) > 30).mean()
             if colored > 0.02:
                 populated += 1
     assert populated >= 15, f"only {populated} line-art boxes got colored"
