@@ -74,3 +74,16 @@ def test_white_frac_ignores_transparent_pixels():
     half = Image.new("RGBA", (10, 10), (200, 30, 30, 255))
     half.paste((255, 255, 255, 255), (0, 0, 5, 10))
     assert abs(Engine._white_frac(half) - 0.5) < 0.01
+
+
+def test_sheet_order_matches_template_rows():
+    from engine import sheet_order
+    from regions import REGIONS
+
+    cells = [(r["part"], None) for r in reversed(REGIONS)]
+    ordered = [p for p, _ in sheet_order(cells)]
+    roles = {r["part"]: r["role"] for r in REGIONS}
+    assert [roles[p] for p in ordered[:7]] == ["head"] * 7, ordered[:7]
+    assert set(ordered[-3:]) == {"hudicon", "selectbanner", "backoffb"}, ordered[-3:]
+    limbs = [roles[p] for p in ordered].index("limb")
+    assert all(roles[p] in ("limb", "hudicon", "banner", "bob") for p in ordered[limbs:])

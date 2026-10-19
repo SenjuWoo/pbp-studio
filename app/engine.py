@@ -29,7 +29,7 @@ from colorize import (
 from magics import magic_number
 
 APP_NAME = "PBP-Studio"
-APP_VERSION = "0.7.1"
+APP_VERSION = "0.7.2"
 APP_DATA = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / APP_NAME
 SETTINGS_FILE = APP_DATA / "settings.json"
 TEMPLATE_CACHE = APP_DATA / "template" / "painting.png"
@@ -396,6 +396,20 @@ def prep_init(crop: Image.Image, gw: int, gh: int) -> Image.Image:
     return canvas
 
 
+SHEET_ROLE_ORDER = {"head": 0, "body": 1, "weapon": 2, "shield": 3, "body_big": 4,
+                    "limb": 5, "hudicon": 6, "banner": 7, "bob": 8}
+
+
+def sheet_order(cells, regions=None):
+    """Contact sheet in template reading order: heads, bodies, gear, giants, limbs, UI."""
+    from regions import REGIONS as _R
+
+    regions = regions or _R
+    pos = {r["part"]: (SHEET_ROLE_ORDER.get(r["role"], 9), r["rect"][1], r["rect"][0])
+           for r in regions}
+    return sorted(cells, key=lambda pc: pos.get(pc[0], (9, 0, 0)))
+
+
 HEAD_VARIANTS = {"helm": 0.30, "helm2": 0.32, "helm4": 0.34, "helm5": 0.30,
                  "helm.A": 0.30, "helm.B": 0.38}
 
@@ -467,7 +481,10 @@ def fit_to_template(piece: Image.Image, crop: Image.Image) -> Image.Image:
     lab, n = ndimage.label(ink)
     if n > 1:
         sizes = ndimage.sum(ink, lab, range(1, n + 1))
-        ink = lab == int(np.argmax(sizes)) + 1
+        big = int(np.argmax(sizes)) + 1
+        # only trust the largest blob when it is the drawing, not a fragment in a busy box
+        if sizes[big - 1] > 0.5 * ink.sum():
+            ink = lab == big
     ys, xs = np.where(ink)
     tx0, ty0, tx1, ty1 = xs.min(), ys.min(), xs.max() + 1, ys.max() + 1
     sprite = piece.crop((ax0, ay0, ax1, ay1))
@@ -1066,8 +1083,7 @@ class Engine:
                 rows = (len(sheet_cells) + cols - 1) // cols
                 sheet = Image.new("RGB", (cols * cell, rows * cell), (24, 24, 28))
                 d = ImageDraw.Draw(sheet)
-                pos = {r["part"]: (r["rect"][1], r["rect"][0]) for r in REGIONS}
-                for k, (part, img) in enumerate(sorted(sheet_cells, key=lambda pc: pos.get(pc[0], (0, 0)))):
+                for k, (part, img) in enumerate(sheet_order(sheet_cells)):
                     sc = min((cell - 26) / img.width, (cell - 26) / img.height)
                     th = img.resize((max(1, int(img.width * sc)), max(1, int(img.height * sc))))
                     cx, cy = (k % cols) * cell, (k // cols) * cell

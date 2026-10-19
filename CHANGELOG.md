@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.2 - sheet order by role, giant boxes unbroken
+- Contact sheet sorted by role group then template position: heads, bodies, weapon and shields,
+  giants, limbs, then hudicon / selectbanner / backoffb (`sheet_order`, covered by a test).
+- `fit_to_template` only trusts the largest ink blob when that blob holds more than half the ink;
+  otherwise it uses all of it. The unconditional rule made bigbod1 collapse to pose 0.04 - it is back
+  at 0.98 with rim coverage 0.92.
+
 ## 0.7.1 - limbs get their own design, clean edges, ordered sheet
 - **Limb init is now the plain colour silhouette**, not the LUT art, and the 0.45 creativity cap is
   gone: limbs run at the normal 0.55, so the model can invent plating and sleeves instead of
