@@ -51,12 +51,15 @@ class Handler(BaseHTTPRequestHandler):
     # ---------------- helpers ----------------
     def _json(self, obj, code=200):
         body = json.dumps(obj).encode()
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+        except (ConnectionError, OSError):
+            pass  # browser closed the tab / refreshed mid-response
 
     def _err(self, msg, code=400):
         self._json({"error": str(msg)}, code)
@@ -70,12 +73,15 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             return self._err(e, 404)
         ctype = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
-        self.send_response(200)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "max-age=5" if cache else "no-store")
-        self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "max-age=5" if cache else "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+        except (ConnectionError, OSError):
+            pass  # client went away mid-download
 
     def log_message(self, fmt, *args):
         pass  # quiet by default
@@ -206,7 +212,16 @@ def main():
     if not STATIC_DIR.exists():
         print("static/ missing next to server.py", file=sys.stderr)
         sys.exit(2)
-    httpd = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+
+    class SingleServer(ThreadingHTTPServer):
+        allow_reuse_address = False  # a second instance must fail, not silently share the port
+
+    try:
+        httpd = SingleServer(("127.0.0.1", PORT), Handler)
+    except OSError:
+        print(f"{APP_NAME}: port {PORT} is already in use — is the app already running?\n"
+              f"Close the other window, or set PBP_PORT to a different port.", file=sys.stderr)
+        sys.exit(2)
     url = f"http://127.0.0.1:{PORT}/"
     print(f"{APP_NAME} {APP_VERSION} serving at {url}")
     if "--no-browser" not in sys.argv:

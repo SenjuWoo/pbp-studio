@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1 - one server, quiet disconnects
+- The server refuses to share its port: a second instance now exits with a clear message instead
+  of silently binding the same address (two servers on 8777 made the UI answer inconsistently).
+- Browser tab closes and refreshes no longer print `ConnectionAbortedError` tracebacks.
+
 ## 0.3.0 - real sprites, transparent background
 - Pieces are now cut out: near-white background connected to the box border becomes transparent,
   enclosed white details stay opaque. The official template is transparent inside its boxes, so the
