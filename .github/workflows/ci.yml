@@ -1,0 +1,31 @@
+# CI for PBP Studio: syntax + offline self-test on a clean Python environment.
+# The selftest exercises the region map, magic table, palette parsing, XML writer and the
+# colorization pipeline (synthetic box always; the real template when it can be fetched).
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install requirements
+        run: python -m pip install --disable-pip-version-check -r requirements.txt
+
+      - name: Compile check
+        run: python -m compileall -q app
+
+      - name: Self-test (offline pipeline)
+        run: python tests/selftest.py

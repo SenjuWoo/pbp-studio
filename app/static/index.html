@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PBP Studio — Castle Crashers character maker</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <div class="brand">
+    <h1>PBP&nbsp;Studio</h1>
+    <span class="sub">Turn a text idea into a Castle Crashers custom character</span>
+  </div>
+  <div class="pills">
+    <span id="pill-backend" class="pill off" title="Local AI image backend (SwarmUI)">AI backend: ?</span>
+    <span id="pill-template" class="pill off" title="Official Painter Boss Paradise template">Template: ?</span>
+    <button id="btn-settings" class="ghost" type="button">Settings</button>
+  </div>
+</header>
+
+<main>
+  <section class="card">
+    <h2><span class="step">1</span> Describe your character</h2>
+    <textarea id="design" rows="3"
+      placeholder="e.g. a grumpy pizza chef knight with a tomato shield"></textarea>
+    <div class="chips" id="chips">
+      <button class="chip">green knight with a red plume</button>
+      <button class="chip">robot knight, chrome with blue lights</button>
+      <button class="chip">cowboy knight with a sheriff hat</button>
+      <button class="chip">cute cat knight, orange fur</button>
+      <button class="chip">spooky skeleton knight, purple cape</button>
+    </div>
+    <div class="row">
+      <label class="grow">Extra style words <input id="extra_style" placeholder="optional: e.g. watercolor, shiny, patterned"></label>
+      <label>AI detail strength <input type="range" id="creativity" min="0.2" max="0.75" step="0.01" value="0.4">
+        <span id="creativity-val">0.40</span></label>
+      <label>Quality <select id="steps">
+        <option value="14">fast</option>
+        <option value="20" selected>normal</option>
+        <option value="28">high</option>
+      </select></label>
+    </div>
+    <p class="hint">Colors are read from your description (e.g. "green knight with a red plume"); the
+      pickers below override them when AI detail is off. Keep detail strength low so the AI paints
+      inside the official template lines instead of redrawing the character.</p>
+    <div class="row">
+      <label class="grow">Generation
+        <select id="engine">
+          <option value="ai" selected>AI detail (local SwarmUI)</option>
+          <option value="solid">No-AI flat colors (offline fallback)</option>
+        </select>
+      </label>
+      <label class="grow">How many pieces
+        <select id="mode">
+          <option value="full" selected>Full character (39 pieces, ~2–4 min)</option>
+          <option value="sample">Quick sample (9 pieces, fast test)</option>
+        </select>
+      </label>
+      <label>Seed <input id="seed" type="number" min="0" placeholder="random" style="width:7em"></label>
+    </div>
+    <div class="row" id="solid-opts" style="display:none">
+      <label>Base color <input type="color" id="color1" value="#3fae4a"></label>
+      <label>Accent color <input type="color" id="color2" value="#c9303a"></label>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2><span class="step">2</span> Name &amp; magic</h2>
+    <div class="row">
+      <label class="grow">Character name <input id="name" maxlength="40" placeholder="My Knight"></label>
+    </div>
+    <div class="magic-grid" id="magic-grid"></div>
+  </section>
+
+  <section class="card">
+    <h2><span class="step">3</span> Output folder</h2>
+    <div class="row">
+      <input id="output_dir" class="grow mono" placeholder="folder for painting.png + pbp.xml">
+      <button id="btn-pick" class="ghost" type="button">Pick…</button>
+      <button id="btn-open" class="ghost" type="button">Open</button>
+    </div>
+    <p class="hint">Point the in-game painter at this folder once (Browse Folder) — it reloads
+      <code>painting.png</code> live while the game is open, so new generations appear instantly.</p>
+    <div class="row actions">
+      <button id="btn-start" class="primary big" type="button">Generate character</button>
+      <button id="btn-cancel" class="ghost" type="button" style="display:none">Cancel</button>
+    </div>
+  </section>
+
+  <section class="card" id="progress-card" style="display:none">
+    <h2>Progress <span id="progress-phase" class="mono muted"></span></h2>
+    <div class="bar"><div id="bar-fill"></div></div>
+    <div class="row">
+      <span id="progress-text" class="mono"></span>
+      <img id="live-preview" alt="">
+    </div>
+    <pre id="log" class="log"></pre>
+  </section>
+
+  <section class="card" id="result-card" style="display:none">
+    <h2>Result</h2>
+    <div class="row">
+      <figure>
+        <img id="res-painting" alt="painting.png">
+        <figcaption class="mono muted" id="res-path"></figcaption>
+      </figure>
+      <figure>
+        <img id="res-sheet" alt="generated pieces">
+        <figcaption class="muted">Generated pieces</figcaption>
+      </figure>
+    </div>
+    <div class="row actions">
+      <button id="btn-open-out" class="ghost" type="button">Open output folder</button>
+      <button id="btn-install" class="ghost" type="button">Install into game (pbplocal)</button>
+    </div>
+    <details>
+      <summary>How to load it in Castle Crashers</summary>
+      <ol>
+        <li>Open the game → <b>Painter Boss Paradise</b> character painter.</li>
+        <li><b>Browse Folder</b> → pick the output folder above (once).</li>
+        <li>Your character previews live; edits to <code>painting.png</code> appear instantly.</li>
+        <li>The name and magic from this app are pre-written to <code>pbp.xml</code>; you can also change
+            them in-game, test the character, and <b>Publish</b> to the Steam Workshop from there.</li>
+      </ol>
+    </details>
+  </section>
+
+  <section class="card" id="settings-card" style="display:none">
+    <h2>Settings</h2>
+    <div class="row"><label class="grow">SwarmUI folder <input id="swarm_root" class="mono" placeholder="auto-detect (kept private)"></label></div>
+    <div class="row"><label class="grow">SwarmUI URL <input id="swarm_url" class="mono" placeholder="http://localhost:7801"></label></div>
+    <div class="row"><label class="grow">Template painting.png <input id="template_path" class="mono" placeholder="auto (game install / official download)"></label></div>
+    <div class="row"><label class="grow">Game folder <input id="game_dir" class="mono" placeholder="auto-detect"></label></div>
+    <div class="row actions">
+      <button id="btn-save-settings" class="primary" type="button">Save settings</button>
+      <button id="btn-redownload" class="ghost" type="button">Re-download official template</button>
+      <button id="btn-start-backend" class="ghost" type="button">Start AI backend</button>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <span id="footer-info" class="muted mono"></span>
+</footer>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

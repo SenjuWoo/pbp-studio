@@ -1,0 +1,90 @@
+PBP STUDIO - HOW IT WAS MADE / FORMAT NOTES
+==========================================
+
+Goal: make custom Castle Crashers characters for the "Painter Boss Paradise" DLC as easily as
+possible, with local AI doing the heavy lifting.
+
+1) THE FORMAT (verified against the installed game)
+--------------------------------------------------
+- A local custom character is a folder containing:
+  - painting.png : 2048x2048 RGBA texture atlas, the official template with the user's art
+  - pbp.xml      : <character displayname="NAME"><magictype>N</magictype></character>
+- The shipped sample lives at:
+  CastleCrashers\data\pbplocal\violet\{painting.png, pbp.xml}
+- The game's own pbp.xml may omit <magictype> entirely (that means "default magic").
+- Workshop items are a single file container with the "PKTB" magic (found in
+  steamapps\workshop\content\204360\<id>\). Publishing/validation is done by the game itself,
+  so PBP Studio stops at producing the local folder.
+
+2) TEMPLATE LAYOUT (region map)
+-------------------------------
+- The template is a drawing sheet: white boxes = draw areas, black bands = the game's own UI
+  surroundings that stay untouched.
+- 39 draw-boxes were detected programmatically (scratch tools: detect_boxes.py, detect_boxes2.py,
+  detect_boxes3.py -- white-component extraction, dilation-merge, white-gap splitting and re-snap),
+  then validated by rendering overlays/contact sheets against the real template art.
+- Box roles were mapped to the sprite names found in the game executable's string table:
+  helm/helm2..5/helm.A/helm.B (7 heads), pbod1/pbodland/knightbodrun/pbodspin/pbodback (5 bodies),
+  sword, shield1, shield2, bigbod1..4/bigbodback/bigbod911 (6 beefy bodies),
+  bigarm1..9/bigleft1/bigleft2/bighand1/bigarmgrap/bigarmthro/bigarm911 (15 limbs),
+  hudicon, selectbanner, backoffb (3 UI art boxes).
+- Everything lives in app/regions.py as (x, y, w, h) rects with a role per box.
+
+3) WHY THE PIPELINE IS "COLORIZE FIRST, AI SECOND"
+--------------------------------------------------
+- The template art is LINE ART (black outlines on white); limbs are pre-shaded dark shapes.
+  The game composes the knight from these exact boxes, so art position/scale inside each box is
+  what keeps the character assembled correctly in-game.
+- A plain "AI draws a knight helmet" attempt (img2img over the box at creativity 0.6-0.75) produced
+  nice drawings that were NOT aligned with the template (and often multi-object collages). That
+  would break the sprite in game.
+- The working approach:
+  a. procedurally fill the enclosed areas of the official line art with the character palette
+     (adaptive line dilation closes 1-3 px gaps; corner-connected regions are background;
+     regions ranked by area get base / accent / shade colors),
+  b. for pre-shaded limb boxes, recolor by preserving the brightness gradient,
+  c. optional AI img2img at LOW creativity (default 0.40) over the flat-colored piece for shading
+     and trim, then multiply the ORIGINAL line art back on top (geometry is guaranteed),
+  d. guard: if the model returns a piece with much more white than the flat version (it erased the
+     coloring), the procedural version is kept.
+- Palette comes from the description text (first named color = armor, second = accent), with UI
+  color pickers as the fallback.
+
+4) MAGIC TABLE
+--------------
+- castle.exe contains an ordered magic name table; the DLC chooser shows 26 of these names.
+- pbp.xml <magictype> indexes that table (0-based). The shipped violet template uses 1, which is
+  "Default Magic" in the extracted order, matching the game default.
+- app/magics.py holds the table + the in-game chooser order used by the UI grid.
+  (In-game confirmation: pick a magic in-game, read pbp.xml, compare.)
+
+5) LOCAL AI BACKEND
+-------------------
+- SwarmUI (or anything exposing its HTTP API) on http://localhost:7801.
+- API used: POST /API/GetNewSession, POST /API/GenerateText2Image with
+  initimage (data URI) + initimagecreativity for img2img.
+- The response lists images as "View/<user>/raw/<date>/<file>.png"; the file lands in
+  <SwarmRoot>/Output/<user>/raw/<date>/<file>.png. SwarmUI may answer a moment before the file is
+  flushed, so the client waits and falls back to the newest png.
+- The app auto-detects a SwarmUI folder (env SWARMUI_ROOT, S:\Misc\SwarmUI, %LOCALAPPDATA%\SwarmUI,
+  C:\SwarmUI, D:\SwarmUI, S:\SwarmUI) and can start it detached with ASPNETCORE_URLS set.
+- Model used during development: woomixAnima_v15 (SDXL-based, anime-leaning). Any SDXL model works;
+  lower-creativity img2img is what keeps results clean, not a specific model.
+
+6) SERVER / UI
+--------------
+- app/server.py: stdlib ThreadingHTTPServer on 127.0.0.1:8777, JSON API + static files.
+  Endpoints: /api/status, /api/magics, /api/job (GET poll, POST start), /api/cancel, /api/settings,
+  /api/check-backend, /api/start-backend, /api/pick-folder, /api/open-folder, /api/install-to-game,
+  /api/redownload-template, /api/file (allow-listed local file serving).
+- app/static/: vanilla HTML/CSS/JS, no build step, no external assets.
+- Jobs run in a worker thread; the page polls /api/job and shows per-piece live preview + log.
+
+7) TESTING DONE DURING DEVELOPMENT
+----------------------------------
+- img2img/txt2img smoke tests against the live SwarmUI (see tests/).
+- 9-piece sample job + multiple full 39-piece jobs through the real API, results inspected visually
+  piece by piece and as a composed atlas.
+- Atlas output validated: every draw-box populated, no spill outside boxes, consistent palette.
+- Not yet verified live in-game by the author: in-game hot reload of a generated folder and the
+  exact <magictype> numbering (both are single manual tests; see STATE.md).

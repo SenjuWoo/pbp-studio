@@ -1,0 +1,18 @@
+# Local Python env and build junk
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Generated / local-only files
+jobs/
+output/
+*.log
+
+# OS junk
+Thumbs.db
+desktop.ini
+
+# Dev-only state file and test outputs
+STATE.md
+tests/_out/
