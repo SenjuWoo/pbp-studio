@@ -68,11 +68,12 @@ _default_settings = {
 def load_settings():
     s = dict(_default_settings)
     try:
-        s.update(json.loads(SETTINGS_FILE.read_text(encoding="utf-8")))
+        raw = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
     except Exception:
-        pass
+        raw = {}
+    s.update(raw)
     # v1 -> v2: 0.40 was the old shipped default, not a deliberate choice
-    if int(s.get("settings_version", 1)) < 2:
+    if int(raw.get("settings_version", 1)) < 2:
         if abs(float(s.get("creativity", 0.55)) - 0.40) < 1e-6:
             s["creativity"] = 0.55
         s["settings_version"] = 2
@@ -183,7 +184,7 @@ class SwarmClient:
         self._ready = False
         self._lock = threading.Lock()
 
-    def wait_ready(self, log=print, timeout_s=180):
+    def wait_ready(self, log=print, timeout_s=180, poll_s=4):
         """Wait until a ComfyUI backend is running AND can actually generate.
 
         "No backends available" is what a freshly started or crashed SwarmUI returns;
@@ -217,7 +218,7 @@ class SwarmClient:
                 last = str(e)[:150]
             if time.time() - t0 > 8:
                 log(f"Waiting for the AI backend... ({last})")
-            time.sleep(4)
+            time.sleep(poll_s)
         raise RuntimeError(f"AI backend never became ready ({last})")
 
     def _find_root(self):

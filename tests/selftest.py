@@ -4,6 +4,7 @@
 import os
 import sys
 import tempfile
+from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app"))
 
@@ -135,6 +136,43 @@ def test_subject_palettes():
     assert parse_palette("samurai in crimson armor")[0] == (168, 24, 44)
     assert parse_palette("a ninja") == ((34, 37, 43), (176, 42, 42))
     print("  palettes: archetypes + explicit override")
+
+
+def test_settings_migration():
+    """An old 0.40 default becomes 0.55 once; a deliberate value is left alone."""
+    import json
+    import tempfile
+    import engine
+
+    old = engine.SETTINGS_FILE, engine.APP_DATA
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            engine.APP_DATA = Path(d)
+            engine.SETTINGS_FILE = Path(d) / "settings.json"
+            engine.SETTINGS_FILE.write_text(json.dumps({"creativity": 0.40}), encoding="utf-8")
+            assert engine.load_settings()["creativity"] == 0.55
+            assert json.loads(engine.SETTINGS_FILE.read_text())["creativity"] == 0.55
+
+            engine.SETTINGS_FILE.write_text(json.dumps({"creativity": 0.62}), encoding="utf-8")
+            assert engine.load_settings()["creativity"] == 0.62
+    finally:
+        engine.SETTINGS_FILE, engine.APP_DATA = old
+    print("  settings: 0.40 migrates once, 0.62 kept")
+
+
+def test_wait_ready_rejects_dead_backend():
+    """A SwarmUI whose backend errored must raise, not fall through to flat fills."""
+    import engine
+
+    client = engine.SwarmClient(url="http://127.0.0.1:1")
+    client._post = lambda path, body, timeout=30: {"0": {"status": "errored"}}
+    try:
+        client.wait_ready(log=lambda m: None, timeout_s=0.3, poll_s=0.05)
+    except RuntimeError as e:
+        assert "never became ready" in str(e)
+    else:
+        raise AssertionError("dead backend must not report ready")
+    print("  backend: errored state raises")
 
 
 def main():
