@@ -174,6 +174,7 @@ class SwarmClient:
             return True
         t0 = time.time()
         last = "no response"
+        restarted = False
         while time.time() - t0 < timeout_s:
             try:
                 backends = self._post("/API/ListBackends", {"session_id": self.session()}, timeout=15)
@@ -194,6 +195,11 @@ class SwarmClient:
                         last = str(e)[:150]
                 else:
                     last = f"backends: {states or 'none'}"
+                    if "errored" in states.values() and not restarted:
+                        # SwarmUI's ComfyUI process dies when its session is interrupted; one restart fixes it
+                        restarted = True
+                        log("AI backend errored - restarting it once...")
+                        self._post("/API/RestartBackends", {"session_id": self.session(), "backend": "all"}, timeout=60)
             except Exception as e:
                 last = str(e)[:150]
             if time.time() - t0 > 8:

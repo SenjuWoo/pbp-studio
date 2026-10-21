@@ -24,6 +24,7 @@ analysed locally, never shipped) and measuring where and how big real art sits i
 - Removed the 0.1-0.7 img2img/silhouette/stamp code and its tests; new offline tests cover the pipeline
   with a fake SwarmUI on a synthetic template, and a regression test pins the ControlNet parameter name.
 - `tools/bench.py` runs a full job from the command line.
+- Benchmark (same design + seed, RTX 4080 SUPER): Klein 287 s / 4 gate retries, Qwen 1240 s / 18, Anima-only 645 s / 0 but off-model (busts as heads, full figures in body boxes). Klein is the default.
 
 ## 0.7.2 - sheet order by role, giant boxes unbroken
 - Contact sheet sorted by role group then template position: heads, bodies, weapon and shields,

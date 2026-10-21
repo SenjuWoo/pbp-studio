@@ -32,11 +32,19 @@ characters do, and it can never come out inconsistent.
     [`flux-2-klein-4b-fp8.safetensors`](https://huggingface.co/black-forest-labs/FLUX.2-klein-4b-fp8)
     (4.1 GB) into `SwarmUI/Models/diffusion_models`. SwarmUI fetches its text encoder itself.
   - optional: [Qwen Image 2.1 turbo int8](https://huggingface.co/Comfy-Org/Qwen-Image-2.1)
-    (`qwen_image_2.1_turbo_int8_convrot.safetensors`, 7.3 GB, same folder) - slower, similar quality.
+    (`qwen_image_2.1_turbo_int8_convrot.safetensors`, 7.3 GB, same folder).
+
+Benchmark, same design and seed, RTX 4080 SUPER 16 GB (25 steps per character):
+
+| Model | Time | Gate retries | Result |
+|---|---|---|---|
+| Flux.2 Klein 4B fp8 | 4 min 47 s | 4 | one identity everywhere, torso pieces keep the clothing |
+| Qwen Image 2.1 turbo int8 | 20 min 40 s | 18 | heads match, torso pieces come out as thin tabard strips |
+| Anima only | 10 min 45 s | 0 | off-model: knight busts as heads, full figures in body boxes |
 - Castle Crashers with the *Painter Boss Paradise* DLC to load and publish the character.
 
 The *Anima only* model needs no download but cannot keep one identity across the pieces (each box is a
-separate drawing).
+separate drawing); treat it as a fallback.
 
 ## Run
 

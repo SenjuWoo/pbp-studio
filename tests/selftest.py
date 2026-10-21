@@ -70,6 +70,27 @@ def test_wait_ready_rejects_dead_backend():
         raise AssertionError("dead backend must not report ready")
 
 
+def test_wait_ready_restarts_an_errored_backend_once():
+    """SwarmUI's ComfyUI process errors out after an interrupted session; one restart must recover it."""
+    import engine
+
+    calls = []
+
+    def fake(path, body, timeout=30):
+        calls.append(path)
+        if path == "/API/ListBackends":
+            return {"0": {"status": "running" if "/API/RestartBackends" in calls else "errored"}}
+        if path == "/API/GenerateText2Image":
+            return {"images": ["x"]}
+        return {"success": True}
+
+    c = engine.SwarmClient(url="http://127.0.0.1:1")
+    c.session = lambda: "s"
+    c._post = fake
+    assert c.wait_ready(log=lambda m: None, timeout_s=5, poll_s=0.01) is True
+    assert calls.count("/API/RestartBackends") == 1
+
+
 def test_export_writes_painting_and_xml():
     import engine
     from test_pipeline import FakeJob
