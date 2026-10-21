@@ -24,7 +24,7 @@ from regions import REGIONS, TEMPLATE_SIZE
 from magics import magic_number
 
 APP_NAME = "PBP-Studio"
-APP_VERSION = "0.8.0"
+APP_VERSION = "0.9.0"
 APP_DATA = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / APP_NAME
 SETTINGS_FILE = APP_DATA / "settings.json"
 TEMPLATE_CACHE = APP_DATA / "template" / "painting.png"
@@ -51,23 +51,30 @@ _default_settings = {
     "template_path": "",
     "game_dir": "",
     "backend": "klein",             # klein | qwen | anima
-    "steps": 40,                    # Anima (design step and the Anima-only model)
-    "cfg": 3.0,
-    "sampler": "rk_beta",
+    "steps": 40,                    # Anima (design step and the Anima-only model), tuned: docs/TUNING.md
+    "cfg": 4.0,
+    "sampler": "er_sde",
     "controlnet": True,
     "controlnet_strength": 1.0,
-    "scheduler": "beta57",
+    "scheduler": "simple",
     "name": "",
     "magic": "Poison",
+    "settings_version": 4,
 }
+OLD_DEFAULTS = {"sampler": "rk_beta", "scheduler": "beta57", "cfg": 3.0}   # shipped up to 0.8.0, tuned out in 0.9.0
 
 
 def load_settings():
     s = dict(_default_settings)
     try:
-        s.update(json.loads(SETTINGS_FILE.read_text(encoding="utf-8")))
+        raw = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
     except Exception:
-        pass
+        return s
+    if int(raw.get("settings_version", 0)) < 4:
+        # an untouched old default is not a choice: let the tuned default replace it
+        raw = {k: v for k, v in raw.items() if OLD_DEFAULTS.get(k, object()) != v}
+        raw["settings_version"] = 4
+    s.update(raw)
     return s
 
 

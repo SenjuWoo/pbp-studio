@@ -37,7 +37,7 @@ async function refreshStatus() {
     if (document.activeElement !== $("output_dir")) $("output_dir").value = s.settings.output_dir || "";
     if (document.activeElement !== $("backend")) $("backend").value = s.settings.backend || "klein";
     if (document.activeElement !== $("steps")) $("steps").value = String(s.settings.steps || 40);
-    if (document.activeElement !== $("cfg")) $("cfg").value = String(s.settings.cfg ?? 3);
+    if (document.activeElement !== $("cfg")) $("cfg").value = String(s.settings.cfg ?? 4);
     if (document.activeElement !== $("sampler")) $("sampler").value = s.settings.sampler || "";
     if (document.activeElement !== $("scheduler")) $("scheduler").value = s.settings.scheduler || "";
     if (document.activeElement !== $("seed")) $("seed").value = s.settings.seed || "";

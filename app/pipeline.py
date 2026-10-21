@@ -31,9 +31,15 @@ STYLE = ("Castle Crashers cartoon style, thick black outline, flat bright colors
          "plain white background")
 NEG = ("multiple views, collage, grid, several figures, duplicates, text, watermark, photo, realistic, "
        "3d render, blurry, background scenery, shadow on the ground")
+# Anima model-card negative + ours; measured best with the tags+prose master prompt (docs/TUNING.md)
+MASTER_NEG = ("worst quality, low quality, score_1, score_2, score_3, artist name, blurry, jpeg artifacts, "
+              "chromatic aberration, " + NEG)
 
 EDIT_MODELS = {"klein": "flux-2-klein-4b-fp8", "qwen": "qwen_image_2.1_turbo_int8_convrot"}
+RENDER_TIMEOUT = 240   # seconds; a Klein piece takes ~7 s, so a longer wait is a stalled SwarmUI
+EDIT_STEPS = 6   # Klein sweep: same gate pass as 8, best colour fidelity, 30% faster (docs/TUNING.md)
 ANIMA_MODEL = "woomixAnima_v15"
+ANIMA_SAMPLER, ANIMA_SCHEDULER = "er_sde", "simple"   # tuned: docs/TUNING.md
 DOWNLOADS = {
     "klein": "https://huggingface.co/black-forest-labs/FLUX.2-klein-4b-fp8 (flux-2-klein-4b-fp8.safetensors, "
              "4.1 GB) -> SwarmUI/Models/diffusion_models",
@@ -57,7 +63,7 @@ SPECS = {
     "helm4":  ("edit", _HEAD, "in full side profile, facing right", (1024, 1024)),
     "helm5":  ("edit", _HEAD, "facing straight at the viewer, front view", (1024, 1024)),
     "helm.A": ("edit", _HEAD, "tilted back and up, eyes squeezed shut, flinching in pain", (1024, 1024)),
-    "helm.B": ("edit", _HEAD, "seen from behind: only the back of the head, only hair or headgear, no face",
+    "helm.B": ("edit", _HEAD, "seen from directly behind: the back of the same head (or helmet), no face visible",
                (1024, 1024)),
     "bodyref":      ("ref", _TORSO, "front view", (768, 768)),
     "pbod1":        ("edit", _TORSO, "standing, three-quarter view facing right", (768, 768)),
@@ -91,7 +97,7 @@ XFORMS = {"pbodland": ("pbod1", 1.12, 0.8, 0), "knightbodrun": ("pbod1", 1, 1, -
 USES_BODYREF = {"pbod1", "pbodback", "bigbod1", "bigbod2", "bigbodback"}
 # part -> (reference piece, min colour similarity to it, max height/width): torsos must keep the clothing
 # colours and must not come back as a tiny full-body figure (measured: good 0.81-0.99, wrong colours 0.57-0.62)
-GATES = {"bodyref": ("master", 0.72, 1.4)}
+GATES = {"bodyref": ("master", 0.55, 1.4)}   # torso lacks hair/skin colours: good ones measured 0.62-0.91
 GATES.update({k: ("bodyref", 0.70, 1.4) for k in USES_BODYREF})
 GATES.update({k: ("bodyref", 0.50, 1.4) for k in ("pbodback", "bigbodback")})   # the back lacks the front emblem
 ORDER = ["helm5", "helm3", "helm", "helm2", "helm4", "helm.A", "helm.B",
@@ -122,6 +128,16 @@ def edit_prompt(part):
                 f"Same colors, same shapes, same emblem. No head, no arms, no legs. {STYLE}, one single object, centered.")
     return (f"Redraw {what} of this exact character, {pose}. Keep every design detail and every color identical "
             f"to the character in the image. {STYLE}, one single object, centered.")
+
+
+def master_prompt(design):
+    """Anima model-card format: lowercase tags first, then two plain sentences (won the prompt sweep)."""
+    d = design.strip().rstrip(".")
+    return ("masterpiece, best quality, score_7, safe, solo, full body, chibi, standing, holding weapon, "
+            "white background, simple background, thick outlines, flat color.\n"
+            f"{d[0].upper() + d[1:]}. The character is drawn in the Castle Crashers cartoon style with thick black "
+            "outlines, flat bright colors and simple cel shading, standing in a three-quarter view on a plain white "
+            "background.")
 
 
 def anima_prompt(design, part):
@@ -261,10 +277,10 @@ def run(engine, job, base, p, design, seed, backend):
             x, y, w, h = r["rect"]
             canvas.paste((0, 0, 0, 0), (x, y, x + w, y + h))
 
-    cfg = float(p.get("cfg", 3.0))
+    cfg = float(p.get("cfg", 4.0))
     steps = int(p.get("steps", 40))
-    sampler = (p.get("sampler") or "").strip()
-    sched = (p.get("scheduler") or "").strip()
+    sampler = (p.get("sampler") or "").strip() or ANIMA_SAMPLER
+    sched = (p.get("scheduler") or "").strip() or ANIMA_SCHEDULER
 
     # ---- master design
     job.phase = "master"
@@ -274,10 +290,8 @@ def run(engine, job, base, p, design, seed, backend):
         job.say(f"Master design: using {mpath}")
     else:
         job.say("Designing the character (Anima)...")
-        prompt = (f"{design}, full body, chibi proportions, standing, three-quarter view, holding a weapon, "
-                  f"{STYLE}, single character")
-        master = sw.render(prompt, 1024, 1024, ANIMA_MODEL, steps, cfg, seed, NEG, sampler=sampler,
-                           scheduler=sched).convert("RGB")
+        master = sw.render(master_prompt(design), 1024, 1024, ANIMA_MODEL, steps, cfg, seed, MASTER_NEG,
+                           sampler=sampler, scheduler=sched).convert("RGB")
     master.save(job.job_dir / "master.png")
     job.result = {"preview": str(job.job_dir / "master.png"), "master": str(job.job_dir / "master.png")}
 
@@ -300,7 +314,7 @@ def run(engine, job, base, p, design, seed, backend):
             src_part, sx, sy, ang = XFORMS[part]
             sprite = xform(sprites[src_part], sx, sy, ang)
         else:
-            sprite, raw = None, None
+            sprite, raw, best = None, None, None    # best = (colour score, sprite, raw) among rejected tries
             for attempt in range(3):
                 s = (seed + 97 * attempt + 13 * i) % (2**31 - 1) or 1
                 try:
@@ -309,10 +323,11 @@ def run(engine, job, base, p, design, seed, backend):
                         img = sw.render(anima_prompt(design, part), gw, gh, ANIMA_MODEL, steps, cfg, s, NEG,
                                         controlnet=guide,
                                         controlnet_strength=float(p.get("controlnet_strength", 1.0)),
-                                        sampler=sampler, scheduler=sched)
+                                        sampler=sampler, scheduler=sched, timeout=RENDER_TIMEOUT)
                     else:
                         refs = [master] + ([made["bodyref"]] if part in USES_BODYREF and "bodyref" in made else [])
-                        img = sw.render(edit_prompt(part), gw, gh, model, 8, 1.0, s, images=refs)
+                        img = sw.render(edit_prompt(part), gw, gh, model, EDIT_STEPS, 1.0, s, images=refs,
+                                        timeout=RENDER_TIMEOUT)
                 except Exception as e:
                     why = f"backend error: {str(e)[:160]}"
                     job.say(f"    {part}: {why}")
@@ -330,8 +345,11 @@ def run(engine, job, base, p, design, seed, backend):
                 job.say(f"    {part}: attempt {attempt + 1} rejected ({why})")
                 (job.job_dir / "raw").mkdir(exist_ok=True)
                 img.save(job.job_dir / "raw" / f"{part}_rejected{attempt + 1}.png")
-                if sprite is None:                  # keep the first try if every attempt fails the gate
-                    sprite, raw = cut, img
+                score = palette_sim(img, ref_img) if ref_img is not None else 0.0
+                if best is None or score > best[0]:
+                    best = (score, cut, img)
+            if sprite is None and best:             # every attempt failed the gate: keep the closest to the reference
+                sprite, raw = best[1], best[2]
             if sprite is None:
                 raise RuntimeError(f"{part}: the backend produced nothing ({why})")
             made[part] = raw

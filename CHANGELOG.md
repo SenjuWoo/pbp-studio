@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.9.0 - settings tuned by measurement
+Every default now comes from a reproducible sweep (`tools/tune.py`, results in `docs/TUNING.md`): 12 sampler x
+scheduler combos, CFG x steps, three prompt formats and Klein steps x canvas, on four different test characters.
+- **Anima (design step):** `er_sde` + `simple` (was rk_beta + beta57; same quality, 42 % faster, cleanest cut-out),
+  CFG 4.0 (was 3.0), 40 steps, and the model-card prompt format (quality tags, lowercase tags, then two sentences)
+  with the model-card negative.
+- **Klein pieces:** 6 steps (was 8): same pass rate, best colour fidelity, 30 % faster; 1024 canvas confirmed
+  (768 was slower and worse).
+- **Back-of-head piece** now says "from directly behind: the back of the same head (or helmet)", so ponytails, ribbons,
+  helmets and taco heads carry over instead of a bald egg.
+- Torso colour gate against the master 0.72 -> 0.55 (it rejected good torsos of the knight); the identity gate
+  against the torso reference stays at 0.70.
+- The pipeline applies the tuned sampler when a job sets none (the command-line path used SwarmUI's default).
+- `settings.json` written by older versions: untouched old defaults are replaced by the tuned ones, your own
+  values are kept.
+- When all three tries of a piece fail the gate, the one closest to the colour reference is kept (it used to be
+  the first). Render calls time out after 4 minutes (a stalled SwarmUI call blocked one run for 11 minutes).
+- `tools/tune.py` added; new tests for the migration, the master prompt, the applied settings and the
+  closest-attempt rule. Validated on four different characters (taco, robot, cat, knight): see `docs/TUNING.md`.
+
 ## 0.8.0 - one master design, exact boxes, edit-model pieces
 The generator was rebuilt after decoding 37 real Workshop characters (PKTB: Blowfish-ECB container,
 analysed locally, never shipped) and measuring where and how big real art sits in every box.

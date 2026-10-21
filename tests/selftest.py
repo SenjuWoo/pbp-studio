@@ -56,6 +56,34 @@ def test_settings_defaults_and_roundtrip():
         engine.SETTINGS_FILE, engine.APP_DATA = old
 
 
+def test_settings_migrate_old_shipped_defaults_but_keep_choices():
+    import engine
+
+    old = engine.SETTINGS_FILE, engine.APP_DATA
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            engine.APP_DATA, engine.SETTINGS_FILE = Path(d), Path(d) / "settings.json"
+            engine.SETTINGS_FILE.write_text(json.dumps(
+                {"sampler": "rk_beta", "scheduler": "beta57", "cfg": 3, "steps": 40, "output_dir": "X"}))
+            s = engine.load_settings()
+            assert (s["sampler"], s["scheduler"], s["cfg"]) == ("er_sde", "simple", 4.0), s
+            assert s["output_dir"] == "X", "user folders must survive the migration"
+            engine.SETTINGS_FILE.write_text(json.dumps({"sampler": "euler", "cfg": 5.5}))
+            s = engine.load_settings()
+            assert s["sampler"] == "euler" and s["cfg"] == 5.5, "a deliberate choice must be kept"
+    finally:
+        engine.SETTINGS_FILE, engine.APP_DATA = old
+
+
+def test_master_prompt_uses_the_model_card_format():
+    import pipeline
+
+    p = pipeline.master_prompt("taco boy with brown boots.")
+    assert p.startswith("masterpiece, best quality, score_7, safe, solo, full body")
+    assert "\nTaco boy with brown boots. The character is drawn" in p
+    assert pipeline.MASTER_NEG.startswith("worst quality, low quality, score_1")
+
+
 def test_wait_ready_rejects_dead_backend():
     """A SwarmUI whose backend errored must raise, not report ready."""
     import engine

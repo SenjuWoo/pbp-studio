@@ -132,7 +132,8 @@ class FakeSwarm:
         return [pipeline.EDIT_MODELS["klein"], pipeline.ANIMA_MODEL]
 
     def render(self, prompt, w, h, model, steps, cfg, seed, negative="", images=None, controlnet=None, **kw):
-        self.calls.append(dict(prompt=prompt, w=w, h=h, model=model, images=len(images or []),
+        self.calls.append(dict(prompt=prompt, w=w, h=h, model=model, images=len(images or []), steps=steps,
+                               cfg=cfg, sampler=kw.get("sampler", ""), scheduler=kw.get("scheduler", ""),
                                controlnet=controlnet is not None))
         color = (200, 40, 40) if "enlarged" not in prompt else (30, 90, 200)
         return _blob((w, h), color, (w // 5, h // 5, w * 4 // 5, h * 4 // 5))
@@ -178,6 +179,9 @@ def test_full_run_with_fake_backend_paints_every_box_and_keeps_limbs():
         assert {p for p, _ in cells} == NON_LIMB
         calls = eng.swarm.calls
         assert calls[0]["model"] == pipeline.ANIMA_MODEL and calls[0]["images"] == 0, "call 0 designs the master"
+        assert (calls[0]["sampler"], calls[0]["scheduler"], calls[0]["cfg"], calls[0]["steps"]) == \
+            ("er_sde", "simple", 4.0, 40), "the tuned Anima settings must apply when the job sets none"
+        assert {c["steps"] for c in calls[1:]} == {pipeline.EDIT_STEPS}
         assert {c["model"] for c in calls[1:]} == {pipeline.EDIT_MODELS["klein"]}, "pieces must use the edit model"
         assert {c["images"] for c in calls[1:]} == {1, 2}      # master, plus master+torso for bodies/giants
         assert (Path(d) / "master.png").exists()
@@ -246,3 +250,36 @@ def test_cancel_raises_cancelled_before_any_piece():
             assert len(eng.swarm.calls) == 1, "only the master may have been drawn"
         else:
             raise AssertionError("cancel must stop the run")
+
+
+def test_when_every_attempt_fails_the_gate_the_closest_one_is_kept():
+    """After 3 rejects the try closest to the torso reference (red) wins, not the first (blue)."""
+    colors = [(30, 60, 200), (200, 40, 40), (30, 160, 60)]           # attempts 0, 1, 2 of bigbod1
+
+    class Scripted(FakeSwarm):
+        n = 0
+
+        def render(self, prompt, w, h, model, steps, cfg, seed, negative="", images=None, controlnet=None, **kw):
+            if "enlarged" in prompt and "front view" in prompt:      # bigbod1 only
+                c = colors[Scripted.n % 3]
+                Scripted.n += 1
+                self.calls.append(dict(prompt=prompt, model=model, images=len(images or []), steps=steps))
+                return _blob((w, h), c, (w // 5, h // 5, w * 4 // 5, h * 4 // 5))
+            return super().render(prompt, w, h, model, steps, cfg, seed, negative, images, controlnet, **kw)
+
+    real_check = pipeline.check
+    pipeline.check = lambda sprite, raw=None, ref=None, min_sim=0.0, max_aspect=0.0: (
+        "colours differ from the reference" if min_sim == 0.70 else real_check(sprite, raw, ref, min_sim, max_aspect))
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            eng, job = FakeEngine(), FakeJob(d)
+            eng.swarm = Scripted()
+            canvas, _ = pipeline.run(eng, job, _template(), {}, "x", 3, "klein")
+    finally:
+        pipeline.check = real_check
+    x, y, w, h = pipeline.BY_PART["bigbod1"]["rect"]
+    px = np.asarray(canvas)[y:y + h, x:x + w]
+    rgb = px[px[..., 3] == 255][:, :3].astype(int)
+    near = lambda c: (abs(rgb - np.array(c)).sum(1) < 40).any()
+    assert near(colors[1]), "the attempt closest to the reference must be kept"
+    assert not near(colors[0]), "the first try must not win"

@@ -82,6 +82,7 @@ py -3 tools/bench.py klein --design "your text" [--master design.png] [--seed 5]
 - `app/magics.py` - the `<magictype>` table (indexes verified against the shipped template + game exe).
 - `app/server.py` - local HTTP/JSON server (binds 127.0.0.1 only).
 - `docs/HOW-IT-WAS-MADE.txt` - the format research and design notes.
+- `docs/TUNING.md` - the measured sweeps behind every default (sampler, CFG, steps, prompt format, Klein steps).
 
 The template is never redistributed: the app uses your installed game's copy, or downloads the
 official one from `castlecrashers.com`, and caches it in `%LOCALAPPDATA%\PBP-Studio`.

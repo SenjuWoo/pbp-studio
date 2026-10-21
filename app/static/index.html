@@ -58,9 +58,9 @@
       <summary>Anima options (design step and the Anima-only model)</summary>
       <div class="row">
         <label>Steps <input id="steps" type="number" min="1" max="100" value="40" style="width:5em"></label>
-        <label>CFG <input id="cfg" type="number" min="1" max="30" step="0.5" value="3" style="width:5em"></label>
-        <label class="grow">Sampler <input id="sampler" placeholder="empty = model default"></label>
-        <label class="grow">Scheduler <input id="scheduler" placeholder="empty = model default"></label>
+        <label>CFG <input id="cfg" type="number" min="1" max="30" step="0.5" value="4" style="width:5em"></label>
+        <label class="grow">Sampler <input id="sampler" placeholder="empty = er_sde (tuned)"></label>
+        <label class="grow">Scheduler <input id="scheduler" placeholder="empty = simple (tuned)"></label>
       </div>
       <div class="row">
         <label class="check" title="Anima lineart ControlNet: keeps every box on the template's pose"><input type="checkbox" id="controlnet" checked> Lock pose (Anima-only model)</label>
