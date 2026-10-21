@@ -34,40 +34,39 @@
     </div>
     <div class="row">
       <label class="grow">Extra style words <input id="extra_style" placeholder="optional: e.g. watercolor, shiny, patterned"></label>
-      <label>AI strength <input type="range" id="creativity" min="0.2" max="0.8" step="0.01" value="0.55">
-        <span id="creativity-val">0.55</span></label>
-      <label>Steps <input id="steps" type="number" min="1" max="100" value="40" style="width:5em"></label>
-      <label>CFG <input id="cfg" type="number" min="1" max="30" step="0.5" value="3" style="width:5em"></label>
-    </div>
-    <div class="row">
-      <label class="grow">Sampler <input id="sampler" placeholder="leave empty for the model default"></label>
-      <label class="grow">Scheduler <input id="scheduler" placeholder="leave empty for the model default"></label>
-      <label class="check" title="Snap every piece to the palette: more consistent, but flatter art"><input type="checkbox" id="palette_lock"> Lock colours</label>
-      <label class="check" title="Anima lineart ControlNet: keeps every box on the template's pose"><input type="checkbox" id="controlnet" checked> Lock pose</label>
-      <label>Pose strength <input id="controlnet_strength" type="number" min="0" max="2" step="0.1" value="1" style="width:4.5em"></label>
-    </div>
-    <p class="hint">Colors are read from your description (e.g. "green knight with a red plume"); the
-      pickers below override them. AI strength is how far the AI may redraw each piece: 0.4 keeps the
-      official line art, 0.55 adds real detail. Sampler/scheduler apply to your SwarmUI model.</p>
-    <div class="row">
-      <label class="grow">Generation
-        <select id="engine">
-          <option value="ai" selected>AI detail (local SwarmUI)</option>
-          <option value="solid">No-AI flat colors (offline fallback)</option>
-        </select>
-      </label>
-      <label class="grow">How many pieces
-        <select id="mode">
-          <option value="full" selected>Full character (39 pieces, ~2–4 min)</option>
-          <option value="sample">Quick sample (9 pieces, fast test)</option>
-        </select>
-      </label>
       <label>Seed <input id="seed" type="number" min="0" placeholder="random" style="width:7em"></label>
     </div>
-    <div class="row" id="solid-opts" style="display:none">
-      <label>Base color <input type="color" id="color1" value="#3fae4a"></label>
-      <label>Accent color <input type="color" id="color2" value="#c9303a"></label>
+    <div class="row">
+      <label class="grow">Model
+        <select id="backend">
+          <option value="klein" selected>Flux.2 Klein 4B - fastest, keeps one identity across all pieces (recommended)</option>
+          <option value="qwen">Qwen Image 2.1 - slower, same idea</option>
+          <option value="anima">Anima only - no cross-piece identity, no extra download</option>
+        </select>
+      </label>
     </div>
+    <div class="row">
+      <label class="grow">Your own character image (optional)
+        <input id="master_file" type="file" accept="image/png,image/jpeg,image/webp"></label>
+      <label class="check" title="Skip the design step and rebuild every piece from the design of the last run"><input type="checkbox" id="reuse_master"> Reuse the last design</label>
+    </div>
+    <p class="hint">The app first draws one full-body design from your text (or uses your image), then redraws
+      every template piece from it, so hair, colours and trim match in all 7 head angles, the bodies, giants,
+      weapon, shields and portraits. The 15 beefy-form arms keep the template's own art. A full character
+      takes about 4 minutes on Klein.</p>
+    <details>
+      <summary>Anima options (design step and the Anima-only model)</summary>
+      <div class="row">
+        <label>Steps <input id="steps" type="number" min="1" max="100" value="40" style="width:5em"></label>
+        <label>CFG <input id="cfg" type="number" min="1" max="30" step="0.5" value="3" style="width:5em"></label>
+        <label class="grow">Sampler <input id="sampler" placeholder="empty = model default"></label>
+        <label class="grow">Scheduler <input id="scheduler" placeholder="empty = model default"></label>
+      </div>
+      <div class="row">
+        <label class="check" title="Anima lineart ControlNet: keeps every box on the template's pose"><input type="checkbox" id="controlnet" checked> Lock pose (Anima-only model)</label>
+        <label>Pose strength <input id="controlnet_strength" type="number" min="0" max="2" step="0.1" value="1" style="width:4.5em"></label>
+      </div>
+    </details>
   </section>
 
   <section class="card">
@@ -109,6 +108,10 @@
       <figure>
         <img id="res-painting" alt="painting.png">
         <figcaption class="mono muted" id="res-path"></figcaption>
+      </figure>
+      <figure>
+        <img id="res-master" alt="master design">
+        <figcaption class="muted">Master design (every piece is drawn from it)</figcaption>
       </figure>
       <figure>
         <img id="res-sheet" alt="generated pieces">

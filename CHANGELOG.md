@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.8.0 - one master design, exact boxes, edit-model pieces
+The generator was rebuilt after decoding 37 real Workshop characters (PKTB: Blowfish-ECB container,
+analysed locally, never shipped) and measuring where and how big real art sits in every box.
+- **Root causes fixed.** (1) `regions.py` rects were the wireframe footprint (~60 % of the real boxes);
+  they are now the template's 39 transparent components, exact to the pixel. (2) The ControlNet guide was
+  sent as `controlnetimage`; SwarmUI's id is `controlnetimageinput`, so it was silently ignored. (3) Each
+  box was repainted independently, so identity drifted and boxes filled with several small figures.
+- **New pipeline (`app/pipeline.py`).** One full-body master design from Anima (or your own image,
+  or the last design), then every piece is redrawn from it by an image-edit model with a text pose
+  command: Flux.2 Klein 4B fp8 (default, ~8 s per piece) or Qwen Image 2.1 turbo int8. Torso reference
+  bridges the master to bodies and giants so they keep the clothing colours.
+- Landing / run / spin bodies, the lying and falling giants and the shield edge are derived from other
+  pieces by squash and rotate (deterministic, consistent).
+- Pieces are cut out of the white canvas with a black soft edge, gated (blank, filled canvas, several
+  figures, too tall, colours differ from the reference) with up to 3 seeds, then fitted to the median
+  real size/position per box (`app/layout_stats.json`, numbers only, bottom-anchored for heads).
+- The 15 beefy-form limbs keep the template's own art (what most Workshop characters do).
+- Anima-only model stays as a no-download fallback: txt2img + lineart ControlNet, now with the guide
+  actually delivered.
+- UI: model selector, your own character image, reuse last design, master design shown in the result.
+  Removed: AI strength, colour lock, flat-colour offline mode and its colour pickers.
+- Removed the 0.1-0.7 img2img/silhouette/stamp code and its tests; new offline tests cover the pipeline
+  with a fake SwarmUI on a synthetic template, and a regression test pins the ControlNet parameter name.
+- `tools/bench.py` runs a full job from the command line.
+
 ## 0.7.2 - sheet order by role, giant boxes unbroken
 - Contact sheet sorted by role group then template position: heads, bodies, weapon and shields,
   giants, limbs, then hudicon / selectbanner / backoffb (`sheet_order`, covered by a test).

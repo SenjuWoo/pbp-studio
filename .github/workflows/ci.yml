@@ -1,6 +1,6 @@
 # CI for PBP Studio: syntax + offline self-test on a clean Python environment.
-# The selftest exercises the region map, magic table, palette parsing, XML writer and the
-# colorization pipeline (synthetic box always; the real template when it can be fetched).
+# Tests are offline: region map, magic table, XML writer, settings, and the whole piece pipeline run
+# against a fake SwarmUI on a synthetic template (no GPU, no game install, no third-party art).
 name: CI
 
 on:
@@ -27,7 +27,7 @@ jobs:
       - name: Compile check
         run: python -m compileall -q app
 
-      - name: Tests (pipeline + alpha + server guard)
+      - name: Tests (pipeline, selftest, server guard)
         run: |
           python -m pip install pytest
           python -m pytest

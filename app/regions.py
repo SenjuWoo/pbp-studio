@@ -5,6 +5,8 @@
 # castle.exe ([helm helm2..5 pbod1.. shield1 shield2 helm.A helm.B bigbod.. bigarm.. selectbanner
 #  hudicon sword backoffb magic]).
 #
+# Every region is one transparent draw-box of the official template (the 39 transparent connected
+# components of violet/painting.png, exact to the pixel; the old wireframe-sized rects were ~60% of this).
 # Every region is one white draw-box in the template. The game slices these regions out of
 # painting.png as the character sprites. Coordinates are (x, y, w, h) in template pixels.
 # "role" drives the AI prompt fragment and default img2img creativity per region.
@@ -70,51 +72,51 @@ ROLE_CREATIVITY = {   # default img2img denoise per role (UI slider overrides wi
 # verified visually; harmless if two UI-only slots are swapped since all carry the same design).
 REGIONS = [
     # -- 7 head boxes (row 1, red band) -> helm, helm2..helm5, helm.A, helm.B
-    {"part": "helm",      "role": "head", "rect": (206, 219, 149, 216)},
-    {"part": "helm2",     "role": "head", "rect": (449, 245, 160, 176)},
-    {"part": "helm3",     "role": "head", "rect": (711, 263, 153, 167)},
-    {"part": "helm4",     "role": "head", "rect": (937, 245, 169, 188)},
-    {"part": "helm5",     "role": "head", "rect": (1192, 238, 169, 187)},
-    {"part": "helm.A",    "role": "head", "rect": (1419, 234, 192, 192)},
-    {"part": "helm.B",    "role": "head", "rect": (1688, 268, 153, 145)},
+    {"part": "helm",      "role": "head", "rect": (163, 111, 234, 332)},
+    {"part": "helm2",     "role": "head", "rect": (411, 111, 234, 332)},
+    {"part": "helm3",     "role": "head", "rect": (659, 111, 234, 332)},
+    {"part": "helm4",     "role": "head", "rect": (907, 111, 234, 332)},
+    {"part": "helm5",     "role": "head", "rect": (1155, 111, 234, 332)},
+    {"part": "helm.A",    "role": "head", "rect": (1403, 111, 234, 332)},
+    {"part": "helm.B",    "role": "head", "rect": (1651, 111, 234, 332)},
     # -- 5 body boxes (row 2, blue band) -> pbod1, pbodland, knightbodrun, pbodspin, pbodback
-    {"part": "pbod1",       "role": "body", "rect": (231, 682, 124, 103)},
-    {"part": "pbodland",    "role": "body", "rect": (447, 674, 157, 112)},
-    {"part": "knightbodrun","role": "body", "rect": (692, 657, 169, 124)},
-    {"part": "pbodspin",    "role": "body", "rect": (936, 650, 173, 135)},
-    {"part": "pbodback",    "role": "body", "rect": (1203, 626, 137, 162)},
+    {"part": "pbod1",       "role": "body", "rect": (163, 533, 234, 258)},
+    {"part": "pbodland",    "role": "body", "rect": (411, 533, 234, 258)},
+    {"part": "knightbodrun","role": "body", "rect": (659, 533, 234, 258)},
+    {"part": "pbodspin",    "role": "body", "rect": (907, 533, 234, 258)},
+    {"part": "pbodback",    "role": "body", "rect": (1155, 533, 234, 258)},
     # -- weapon + shields (pencil tile + yellow band)
-    {"part": "sword",     "role": "weapon", "rect": (1559, 559, 64, 220)},
-    {"part": "shield1",   "role": "shield", "rect": (1729, 717, 52, 70)},
-    {"part": "shield2",   "role": "shield", "rect": (1807, 718, 53, 58)},
+    {"part": "sword",     "role": "weapon", "rect": (1541, 533, 96, 258)},
+    {"part": "shield1",   "role": "shield", "rect": (1691, 661, 90, 130)},
+    {"part": "shield2",   "role": "shield", "rect": (1795, 661, 90, 130)},
     # -- 6 beefy-form body boxes (row 3, green band) -> bigbod1..4, bigbodback, bigbod911
-    {"part": "bigbod1",    "role": "body_big", "rect": (209, 949, 214, 207)},
-    {"part": "bigbod2",    "role": "body_big", "rect": (505, 941, 222, 212)},
-    {"part": "bigbod3",    "role": "body_big", "rect": (790, 941, 231, 212)},
-    {"part": "bigbod4",    "role": "body_big", "rect": (1078, 936, 264, 214)},
-    {"part": "bigbodback", "role": "body_big", "rect": (1426, 934, 197, 221)},
-    {"part": "bigbod911",  "role": "body_big", "rect": (1698, 936, 234, 220)},
+    {"part": "bigbod1",    "role": "body_big", "rect": (163, 865, 292, 296)},
+    {"part": "bigbod2",    "role": "body_big", "rect": (469, 865, 270, 296)},
+    {"part": "bigbod3",    "role": "body_big", "rect": (753, 865, 292, 296)},
+    {"part": "bigbod4",    "role": "body_big", "rect": (1059, 865, 292, 296)},
+    {"part": "bigbodback", "role": "body_big", "rect": (1365, 865, 292, 296)},
+    {"part": "bigbod911",  "role": "body_big", "rect": (1671, 865, 270, 296)},
     # -- 15 beefy-form limb boxes (rows 4-6) -> bigarm1..9, bigleft1, bigleft2, bighand1,
     #    bigarmgrap, bigarmthro, bigarm911
-    {"part": "bigarm1",    "role": "limb", "rect": (181, 1183, 133, 146)},
-    {"part": "bigarm2",    "role": "limb", "rect": (350, 1182, 137, 146)},
-    {"part": "bigarm3",    "role": "limb", "rect": (522, 1195, 210, 117)},
-    {"part": "bigarm4",    "role": "limb", "rect": (770, 1192, 189, 118)},
-    {"part": "bigarm5",    "role": "limb", "rect": (1018, 1190, 185, 122)},
-    {"part": "bigarm6",    "role": "limb", "rect": (1291, 1191, 175, 122)},
-    {"part": "bigarm7",    "role": "limb", "rect": (1510, 1197, 123, 115)},
-    {"part": "bigarm8",    "role": "limb", "rect": (1694, 1186, 179, 140)},
-    {"part": "bigarm9",    "role": "limb", "rect": (174, 1351, 140, 144)},
-    {"part": "bigleft1",   "role": "limb", "rect": (347, 1358, 127, 126)},
-    {"part": "bigleft2",   "role": "limb", "rect": (527, 1356, 199, 123)},
-    {"part": "bighand1",   "role": "limb", "rect": (769, 1365, 96, 106)},
-    {"part": "bigarmgrap", "role": "limb", "rect": (166, 1520, 215, 124)},
-    {"part": "bigarmthro", "role": "limb", "rect": (416, 1519, 207, 130)},
-    {"part": "bigarm911",  "role": "limb", "rect": (678, 1517, 187, 129)},
+    {"part": "bigarm1",    "role": "limb", "rect": (163, 1179, 158, 152)},
+    {"part": "bigarm2",    "role": "limb", "rect": (335, 1179, 156, 152)},
+    {"part": "bigarm3",    "role": "limb", "rect": (505, 1179, 234, 152)},
+    {"part": "bigarm4",    "role": "limb", "rect": (753, 1179, 234, 152)},
+    {"part": "bigarm5",    "role": "limb", "rect": (1001, 1179, 234, 152)},
+    {"part": "bigarm6",    "role": "limb", "rect": (1249, 1179, 234, 152)},
+    {"part": "bigarm7",    "role": "limb", "rect": (1497, 1179, 160, 152)},
+    {"part": "bigarm8",    "role": "limb", "rect": (1671, 1179, 214, 152)},
+    {"part": "bigarm9",    "role": "limb", "rect": (163, 1345, 158, 152)},
+    {"part": "bigleft1",   "role": "limb", "rect": (335, 1345, 156, 152)},
+    {"part": "bigleft2",   "role": "limb", "rect": (505, 1345, 234, 152)},
+    {"part": "bighand1",   "role": "limb", "rect": (753, 1345, 140, 152)},
+    {"part": "bigarmgrap", "role": "limb", "rect": (163, 1515, 234, 152)},
+    {"part": "bigarmthro", "role": "limb", "rect": (411, 1515, 234, 152)},
+    {"part": "bigarm911",  "role": "limb", "rect": (659, 1515, 234, 152)},
     # -- UI art boxes (bottom right purple area)
-    {"part": "hudicon",      "role": "hudicon", "rect": (1201, 1477, 127, 130)},
-    {"part": "selectbanner", "role": "banner",  "rect": (1345, 1490, 255, 501)},
-    {"part": "backoffb",     "role": "bob",     "rect": (1656, 1661, 190, 325)},
+    {"part": "hudicon",      "role": "hudicon", "rect": (1201, 1477, 130, 130)},
+    {"part": "selectbanner", "role": "banner",  "rect": (1345, 1477, 258, 514)},
+    {"part": "backoffb",     "role": "bob",     "rect": (1627, 1477, 258, 514)},
 ]
 
 assert len(REGIONS) == 39, f"expected 39 regions, got {len(REGIONS)}"

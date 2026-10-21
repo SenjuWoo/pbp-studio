@@ -131,6 +131,8 @@ class Handler(BaseHTTPRequestHandler):
                 if body.get("swarm_root") is not None:
                     engine.swarm.root = s.get("swarm_root") or engine.swarm._find_root()
                 return self._json({"ok": True, "settings": s})
+            if parsed.path == "/api/master":
+                return self._json(save_master(body.get("data", "")))
             if parsed.path == "/api/job":
                 job = engine.start_job(body)
                 return self._json({"ok": True, "id": job.id})
@@ -188,6 +190,26 @@ def pick_folder():
         return out.stdout.decode(errors="ignore").strip()
     except Exception:
         return ""
+
+
+def save_master(data_url):
+    """Store a user-supplied character image (data URL) as a PNG a job can use as its master design."""
+    import base64
+    import io
+    import time
+
+    from PIL import Image
+
+    try:
+        img = Image.open(io.BytesIO(base64.b64decode(data_url.split(",", 1)[-1]))).convert("RGB")
+    except Exception:
+        raise RuntimeError("that file is not a readable image")
+    img.thumbnail((1536, 1536))
+    dst = APP_DATA / "master"
+    dst.mkdir(parents=True, exist_ok=True)
+    path = dst / f"{time.strftime('%Y%m%d-%H%M%S')}.png"
+    img.save(path, "PNG")
+    return {"path": str(path)}
 
 
 def install_to_game(body):

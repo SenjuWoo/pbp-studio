@@ -35,16 +35,12 @@ async function refreshStatus() {
       if (document.activeElement !== $(k)) $(k).value = s.settings[k] || "";
     });
     if (document.activeElement !== $("output_dir")) $("output_dir").value = s.settings.output_dir || "";
-    if (document.activeElement !== $("creativity")) {
-      $("creativity").value = s.settings.creativity ?? 0.55;
-      $("creativity-val").textContent = Number($("creativity").value).toFixed(2);
-    }
+    if (document.activeElement !== $("backend")) $("backend").value = s.settings.backend || "klein";
     if (document.activeElement !== $("steps")) $("steps").value = String(s.settings.steps || 40);
     if (document.activeElement !== $("cfg")) $("cfg").value = String(s.settings.cfg ?? 3);
     if (document.activeElement !== $("sampler")) $("sampler").value = s.settings.sampler || "";
     if (document.activeElement !== $("scheduler")) $("scheduler").value = s.settings.scheduler || "";
     if (document.activeElement !== $("seed")) $("seed").value = s.settings.seed || "";
-    $("palette_lock").checked = !!s.settings.palette_lock;
     $("controlnet").checked = s.settings.controlnet !== false;
     if (document.activeElement !== $("controlnet_strength")) $("controlnet_strength").value = String(s.settings.controlnet_strength ?? 1);
     if (document.activeElement !== $("name") && !$("name").value) $("name").value = s.settings.name || "";
@@ -75,10 +71,15 @@ async function loadMagics() {
   if (fav) [...grid.children].forEach((c) => c.classList.toggle("sel", c.dataset.name === fav[1]));
 }
 
-$("color1").oninput = () => { $("color1").dataset.touched = "1"; };
-$("color2").oninput = () => { $("color2").dataset.touched = "1"; };
-$("creativity").oninput = () => { $("creativity-val").textContent = Number($("creativity").value).toFixed(2); };
-$("engine").onchange = () => { $("solid-opts").style.display = $("engine").value === "solid" ? "flex" : "none"; };
+let masterPath = "";
+$("master_file").onchange = async () => {
+  const f = $("master_file").files[0];
+  masterPath = "";
+  if (!f) return;
+  const data = await new Promise((ok) => { const r = new FileReader(); r.onload = () => ok(r.result); r.readAsDataURL(f); });
+  try { masterPath = (await api("/api/master", { data })).path; }
+  catch (e) { alert("Could not use that image: " + e.message); $("master_file").value = ""; }
+};
 [...$("chips").children].forEach((c) => c.onclick = () => { $("design").value = c.textContent; });
 
 $("btn-pick").onclick = async () => {
@@ -113,13 +114,12 @@ async function persistSettings() {
     swarm_url: $("swarm_url").value.trim(),
     template_path: $("template_path").value.trim(),
     game_dir: $("game_dir").value.trim(),
-    creativity: Number($("creativity").value),
+    backend: $("backend").value,
     steps: Number($("steps").value),
     cfg: Number($("cfg").value),
     sampler: $("sampler").value.trim(),
     scheduler: $("scheduler").value.trim(),
     seed: Number($("seed").value) || 0,
-    palette_lock: $("palette_lock").checked,
     controlnet: $("controlnet").checked,
     controlnet_strength: Number($("controlnet_strength").value),
     name: $("name").value.trim(),
@@ -154,6 +154,7 @@ function finishJob(job) {
   $("result-card").style.display = "block";
   const r = job.result || {};
   if (r.painting) $("res-painting").src = `/api/file?p=${encodeURIComponent(r.painting)}&t=${Date.now()}`;
+  if (r.master) $("res-master").src = `/api/file?p=${encodeURIComponent(r.master)}&t=${Date.now()}`;
   if (r.sheet) $("res-sheet").src = `/api/file?p=${encodeURIComponent(r.sheet)}&t=${Date.now()}`;
   $("res-path").textContent = r.export_dir || "";
   refreshStatus();
@@ -171,17 +172,17 @@ $("btn-start").onclick = async () => {
       extra_style: $("extra_style").value,
       name: $("name").value || "Custom Character",
       magic: selectedMagic,
-      mode: $("mode").value,
-      engine: $("engine").value,
-      creativity: Number($("creativity").value),
+      backend: $("backend").value,
+      master_png: masterPath,
+      reuse_master: $("reuse_master").checked,
+      controlnet: $("controlnet").checked,
+      controlnet_strength: Number($("controlnet_strength").value),
       steps: Number($("steps").value),
       cfg: Number($("cfg").value),
       sampler: $("sampler").value.trim(),
       scheduler: $("scheduler").value.trim(),
       seed: Number($("seed").value) || 0,
       output_dir: $("output_dir").value.trim(),
-      color1: $("color1").dataset.touched ? $("color1").value : "",
-      color2: $("color2").dataset.touched ? $("color2").value : "",
     });
     if (pollTimer) clearInterval(pollTimer);
     pollTimer = setInterval(async () => {

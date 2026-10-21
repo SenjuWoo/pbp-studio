@@ -1,95 +1,88 @@
 # PBP Studio
 
-> **HEAVILY WORK IN PROGRESS - NOT USABLE YET.**
-> The pipeline runs end to end and produces a valid `painting.png` + `pbp.xml`, but the generated
-> art does not yet look like a coherent Castle Crashers character. Poses, transparency and file
-> format are solved; design consistency and limb/body style matching are not. Expect broken output.
-> Shelved for now. Issues and PRs are welcome, but nothing here should be treated as finished.
+> **Status: 0.8 beta.** The generator was rebuilt around one master design per character, and every
+> box now uses the exact template geometry and the size/position real Workshop characters use.
+> The atlas is validated offline (tests) and against the layout of 37 real Workshop characters.
+> It has **not been played in game by the author yet** - treat the first in-game load as the real test
+> and report what you see.
 
-Turn a text idea into a **Castle Crashers custom character** for the *Painter Boss Paradise* DLC —
-local, offline-friendly, and as automatic as possible.
+Turn a text idea into a **Castle Crashers custom character** for the *Painter Boss Paradise* DLC -
+local, offline-friendly, no account, no upload.
 
-You type something like *"green knight with a red plume, gold trim"*, pick a name and a magic, press
-**Generate character**, and the app:
+You type *"red-haired knight girl with a white ribbon, silver armor, blue tabard"*, pick a name and a
+magic, press **Generate character**, and the app:
 
-1. reads the palette out of your description,
-2. flat-colors every one of the 39 official template pieces inside the game's own line art (the
-   fallback, and the starting point for the AI),
-3. redraws each piece with the local AI at your chosen strength, cuts the white background out so
-   the sprite is transparent like the official template, and keeps the template's pose and scale,
+1. draws **one full-body master design** with a local anime model (or uses your own image),
+2. redraws every template piece from that master with an image-edit model, so hair, colours and trim
+   are the same in all **7 head angles, 5 bodies, the 6 giant torsos, weapon, shields, portrait icon,
+   select banner and figurine**,
+3. cuts each piece out of its white background, rejects blank / multi-figure / wrong-colour results and
+   retries, and places it in its box at the size and position real Workshop characters use,
 4. writes `painting.png` + `pbp.xml` into a folder the in-game painter can load and hot-reload.
 
-The result is a normal PBP character folder — you can open the game, point the painter at the folder,
-see it live, test it, and publish it to the Steam Workshop from inside the game.
-
-## ControlNet (pose lock, recommended)
-The template's 39 boxes are specific poses - a front-facing head, a side view, a back view, fists.
-Without guidance the model paints a front view in every box. This app uses the official **Anima
-LLLite lineart** ControlNet to hold each box on the template's own line art:
-
-```bash
-curl -L -o "S:/Misc/SwarmUI/Models/model_patches/anima-lllite-lineart-1.safetensors"   https://huggingface.co/Comfy-Org/Anima-LLLite/resolve/main/model_patches/anima-lllite-lineart-1.safetensors
-```
-
-7.8 MB, then restart SwarmUI. The app falls back to plain img2img with a warning if it is missing.
+The 15 beefy-form **limb boxes keep the template's own dark art** - that is what most Workshop
+characters do, and it can never come out inconsistent.
 
 ## Requirements
 
 - Windows 10/11, Python 3.10+ (the launcher creates a local `.venv`, nothing system-wide).
-- Optional but recommended: a local [SwarmUI](https://github.com/mcmonkeyprojects/SwarmUI) install
-  with a Stable Diffusion / SDXL model — the app auto-detects it, auto-starts it on port 7801 and
-  uses it for the AI detail pass. Without it the app still works in **No-AI flat colors** mode.
-- Castle Crashers with the *Painter Boss Paradise* DLC for actually loading/publishing the character.
+- [SwarmUI](https://github.com/mcmonkeyprojects/SwarmUI) (auto-detected, auto-started on port 7801) with:
+  - an Anima model for the design step (developed with `woomixAnima_v15`), and
+  - **Flux.2 Klein 4B fp8** for the pieces: download
+    [`flux-2-klein-4b-fp8.safetensors`](https://huggingface.co/black-forest-labs/FLUX.2-klein-4b-fp8)
+    (4.1 GB) into `SwarmUI/Models/diffusion_models`. SwarmUI fetches its text encoder itself.
+  - optional: [Qwen Image 2.1 turbo int8](https://huggingface.co/Comfy-Org/Qwen-Image-2.1)
+    (`qwen_image_2.1_turbo_int8_convrot.safetensors`, 7.3 GB, same folder) - slower, similar quality.
+- Castle Crashers with the *Painter Boss Paradise* DLC to load and publish the character.
+
+The *Anima only* model needs no download but cannot keep one identity across the pieces (each box is a
+separate drawing).
 
 ## Run
 
-Double-click `START.bat` (first run installs Pillow/numpy/scipy into `.venv`).
-The UI opens at <http://127.0.0.1:8777/>.
+Double-click `START.bat` (first run installs Pillow/numpy/scipy into `.venv`). The UI opens at
+<http://127.0.0.1:8777/>.
 
-1. **Describe your character** — the first color you name becomes the armor color, the second the
-   accent (plume/belt/trim). If you name no colour at all, the first piece is generated freely and
-   its palette is reused for the rest, so "taco boy" comes out taco-coloured instead of default green. *AI strength* is how far the model may redraw each piece: 0.40 stays
-   close to the official line art, 0.55 (default) adds real detail, above 0.7 it starts inventing.
-   *Steps* (40), *CFG* (3.0), *Sampler* (rk_beta) and *Scheduler* (beta57) are sent to SwarmUI and
-   can be changed per job; empty sampler/scheduler means "model default", and if your SwarmUI does
-   not have them the job falls back to the model defaults with a warning. *Lock colours* (off by default) snaps every piece to the palette - more consistent, flatter art.
-   *Seed* is shared by every piece - leave it empty for a random one per character, or pin it to reproduce a result.
-2. **Name & magic** — 26 in-game magics.
-3. **Output folder** — pick the folder the game will watch. Press *Generate character*.
-4. In game: **Painter Boss Paradise → Browse Folder** → pick that folder. The preview updates live.
+1. **Describe your character** - say what it looks like (head, outfit, colours). Optionally upload your
+   own character image instead, or tick *Reuse the last design* to rebuild all pieces from the previous
+   master (handy when the design is right and a piece is not).
+2. **Name & magic** - 26 in-game magics.
+3. **Output folder** - pick the folder the game watches, press *Generate character*
+   (about 4 minutes on Klein; the first run also loads the models).
+4. In game: **Painter Boss Paradise -> Browse Folder** -> pick that folder. The preview updates live.
    Test the character and publish to the Workshop from the in-game menu.
 
-`Install into game (pbplocal)` copies the finished folder into
-`CastleCrashers\data\pbplocal\<name>\` next to the shipped `violet` sample.
+`Install into game (pbplocal)` copies the finished folder into `CastleCrashers\data\pbplocal\<name>\`.
 
-## How it works (short version)
+Command line, no browser (benchmarks, repeatable runs):
 
-The official template is **line art on a transparent background**: the game only draws the pixels
-that have alpha, so a piece painted on opaque white would show as a white box in game. PBP Studio
-therefore colorizes the line art procedurally first (enclosed-region fill with the parsed palette),
-seeds an img2img pass with that fill so the pose and scale stay put, and cuts the background out of
-the result - near-white pixels connected to the box edge become transparent, while enclosed white
-details (eyes, trim) stay opaque. With no AI backend the procedural fill is used as-is.
+```bash
+py -3 tools/bench.py klein --design "your text" [--master design.png] [--seed 5] [--out DIR]
+```
 
-Before generating, the app waits for a SwarmUI backend that can actually produce an image (a tiny
-test render). If the backend is dead it stops with an error and writes nothing, instead of quietly
-producing a flat character.
+## How it works
 
-- `app/regions.py` — the 39 draw-boxes of the official 2048×2048 template with their roles
-- `app/colorize.py` — palette parsing, enclosed-region fill, shading recolor, line stamping
-- `app/engine.py` — template discovery, SwarmUI client, job pipeline, `painting.png` + `pbp.xml` writer
-- `app/magics.py` — the `<magictype>` table (indexes verified against the shipped template + game exe)
-- `app/server.py` — local HTTP/JSON server (binds 127.0.0.1 only)
-- `docs/HOW-IT-WAS-MADE.txt` — the format research and why the pipeline is built this way
+- `app/regions.py` - the 39 draw boxes of the official 2048x2048 template. They are the template's
+  39 transparent connected components, exact to the pixel (the game slices these).
+- `app/layout_stats.json` - median art size/position per box over 37 real Workshop atlases (numbers
+  only, no art). Heads sit at x 24-78 %, y 47-89 % of their box in every character; bodies are small
+  torso garments; weapons are one vertical item.
+- `app/pipeline.py` - master design, per-piece edit prompts, torso-reference bridge for bodies and
+  giants, deterministic rotate/squash for landing / run / spin / lying giant / shield edge, cut-out,
+  quality gates, fitting, compositing.
+- `app/engine.py` - template discovery, SwarmUI client, job runner, `painting.png` + `pbp.xml` writer.
+- `app/magics.py` - the `<magictype>` table (indexes verified against the shipped template + game exe).
+- `app/server.py` - local HTTP/JSON server (binds 127.0.0.1 only).
+- `docs/HOW-IT-WAS-MADE.txt` - the format research and design notes.
 
 The template is never redistributed: the app uses your installed game's copy, or downloads the
 official one from `castlecrashers.com`, and caches it in `%LOCALAPPDATA%\PBP-Studio`.
 
 ## Notes
 
-- Everything runs locally; no account, no key, no upload. The only network use is the optional
-  one-time template download when no game install is found.
-- The `pbp.xml` written by the app is the same format the game itself uses
+- Everything runs locally. The only network use is the optional one-time template download when no
+  game install is found.
+- The `pbp.xml` written by the app is the format the game itself uses
   (`<character displayname="..."><magictype>N</magictype></character>`).
-- Workshop publishing/validation stays in-game (the game owns the upload and the PKTB container).
-- Castle Crashers and Painter Boss Paradise are © The Behemoth. This is an unofficial fan tool.
+- Workshop publishing/validation stays in-game (the game owns the upload and the container format).
+- Castle Crashers and Painter Boss Paradise are (c) The Behemoth. This is an unofficial fan tool.

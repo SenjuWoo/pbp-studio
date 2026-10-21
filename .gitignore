@@ -16,3 +16,6 @@ desktop.ini
 # Dev-only state file and test outputs
 STATE.md
 tests/_out/
+
+# Third-party workshop art + the local PKTB decoder: never publish
+reference/

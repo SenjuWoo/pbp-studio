@@ -1,9 +1,8 @@
 # PBP Studio -- core engine:
 #   template discovery (game install -> official download -> cache),
 #   local SwarmUI client (auto-start the installed SwarmUI/ComfyUI stack),
-#   per-region image generation (img2img over the template box, or no-AI solid colorize),
-#   composition into painting.png and writing of the PBP folder (painting.png + pbp.xml).
-# Everything here is stdlib + Pillow only, so the app runs on a bare Python install.
+#   the job runner (master design -> pieces, see pipeline.py) and the writer of the PBP folder
+#   (painting.png + pbp.xml). Stdlib + Pillow + numpy + scipy only.
 import base64
 import io
 import random
@@ -18,18 +17,14 @@ import time
 import urllib.request
 from pathlib import Path
 
-from PIL import Image, ImageChops, ImageDraw, ImageOps
+from PIL import Image, ImageDraw
 import numpy as np
 
 from regions import REGIONS, TEMPLATE_SIZE
-from colorize import (
-    flat_colorize,
-    shade_recolor,colorize_box, parse_palette, palette_words as pal_words, has_colors,
-                      detail_prompt, AI_NEGATIVE, negative_for, palette_lock, extract_palette)
 from magics import magic_number
 
 APP_NAME = "PBP-Studio"
-APP_VERSION = "0.7.2"
+APP_VERSION = "0.8.0"
 APP_DATA = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / APP_NAME
 SETTINGS_FILE = APP_DATA / "settings.json"
 TEMPLATE_CACHE = APP_DATA / "template" / "painting.png"
@@ -47,12 +42,6 @@ SWARM_ROOT_CANDIDATES = [
     r"S:\SwarmUI",
 ]
 
-STYLE_SUFFIX = ("Castle Crashers video game art style, 2D cartoon game sprite, "
-                "thick clean black outlines, flat bright colors, simple cel shading, "
-                "white background, no text")
-NEGATIVE = ("text, watermark, signature, photo, realistic, 3d render, blurry, low quality, scenery, "
-            "background, multiple objects, multiple views, collage, grid, duplicated parts, extra heads, clones")
-
 
 # ---------------------------------------------------------------- settings
 _default_settings = {
@@ -61,51 +50,30 @@ _default_settings = {
     "swarm_root": "",
     "template_path": "",
     "game_dir": "",
-    "creativity": 0.55,
-    "steps": 40,
+    "backend": "klein",             # klein | qwen | anima
+    "steps": 40,                    # Anima (design step and the Anima-only model)
     "cfg": 3.0,
     "sampler": "rk_beta",
-    "palette_lock": False,
     "controlnet": True,
     "controlnet_strength": 1.0,
     "scheduler": "beta57",
     "name": "",
     "magic": "Poison",
-    "settings_version": 2,
 }
 
 
 def load_settings():
     s = dict(_default_settings)
     try:
-        raw = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+        s.update(json.loads(SETTINGS_FILE.read_text(encoding="utf-8")))
     except Exception:
-        raw = {}
-    s.update(raw)
-    # v1 -> v3: 0.40/20 were the old shipped defaults, not deliberate choices
-    if int(raw.get("settings_version", 1)) < 3:
-        if abs(float(s.get("creativity", 0.55)) - 0.40) < 1e-6:
-            s["creativity"] = 0.55
-        if int(s.get("steps", 40) or 40) == 20:
-            s["steps"] = 40
-        s["settings_version"] = 3
-        s["migrated_055"] = True
-        try:
-            APP_DATA.mkdir(parents=True, exist_ok=True)
-            SETTINGS_FILE.write_text(json.dumps(s, indent=2), encoding="utf-8")
-        except Exception:
-            pass
+        pass
     return s
 
 
 def save_settings(patch: dict):
     s = load_settings()
     s.update({k: v for k, v in patch.items() if v is not None})
-    # an already-open page still holds the old 0.40 default; don't let it undo the migration
-    if not s.get("migrated_055"):
-        if abs(float(s.get("creativity", 0.55)) - 0.40) < 1e-6:
-            s["creativity"] = 0.55
-        s["migrated_055"] = True
     APP_DATA.mkdir(parents=True, exist_ok=True)
     tmp = SETTINGS_FILE.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(s, indent=2), encoding="utf-8")
@@ -285,36 +253,37 @@ class SwarmClient:
             return self._session
 
     # --- generation ------------------------------------------------
-    def generate(self, prompt, width, height, seed=0, init_png=None, creativity=0.4,
-                 steps=20, cfg=6.0, model=DEFAULT_MODEL, timeout=900, negative=None,
-                 sampler="", scheduler="", controlnet=None, controlnet_strength=1.0):
-        """Run one img2img (or txt2img when init_png is None). Returns a PIL RGB image."""
-        body = {
-            "session_id": self.session(),
-            "model": model,
-            "prompt": prompt,
-            "negativeprompt": negative or NEGATIVE,
-            "width": int(width), "height": int(height),
-            "steps": int(steps), "cfgscale": float(cfg),
-            "seed": int(seed) if seed else -1,
-            "images": 1,
-        }
+
+    def render(self, prompt, w, h, model, steps, cfg, seed, negative="", images=None,
+               controlnet=None, controlnet_strength=1.0, sampler="", scheduler="", timeout=900):
+        """One generation for any model: txt2img, reference-image edit (Klein/Qwen) or ControlNet."""
+        body = {"session_id": self.session(), "model": model, "prompt": prompt,
+                "negativeprompt": negative, "width": int(w), "height": int(h),
+                "steps": int(steps), "cfgscale": float(cfg), "seed": int(seed) or -1, "images": 1}
         if sampler:
             body["sampler"] = sampler
         if scheduler:
             body["scheduler"] = scheduler
-        if controlnet:
-            body["controlnetimage"] = controlnet
-            body["controlnetmodel"] = CONTROLNET_MODEL
-            body["controlnetstrength"] = float(controlnet_strength)
-            body["controlnetpreprocessor"] = "None"
-        if init_png is not None:
-            buf = io.BytesIO()
-            init_png.save(buf, "PNG")
-            body["initimage"] = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
-            body["initimagecreativity"] = float(creativity)
+        if images:                      # edit models: reference images, "|"-separated data URLs
+            body["promptimages"] = "|".join(image_data_url(im) for im in images)
+        if controlnet is not None:
+            body.update({"controlnetimageinput": image_data_url(controlnet),
+                         "controlnetmodel": CONTROLNET_MODEL,
+                         "controlnetstrength": float(controlnet_strength),
+                         "controlnetpreprocessor": "None"})
+        return self._run(body, timeout)
+
+    def list_models(self):
+        r = self._post("/API/ListModels", {"session_id": self.session(), "path": "", "depth": 3,
+                                           "subtype": "Stable-Diffusion", "sortBy": "Name"})
+        # bare names: a model in a sub-folder is listed as "Anima/woomixAnima_v15.safetensors"
+        return [f["name"].replace("\\", "/").rsplit("/", 1)[-1].rsplit(".", 1)[0] for f in r.get("files", [])]
+
+    def _run(self, body, timeout):
         t_req = time.time()
         res = self._post("/API/GenerateText2Image", body, timeout=timeout)
+        if res.get("error"):
+            raise RuntimeError(str(res["error"])[:300])
         imgs = res.get("images") or []
         if not imgs:
             raise RuntimeError(f"SwarmUI returned no images: {json.dumps(res)[:300]}")
@@ -368,34 +337,6 @@ def pbp_xml(displayname: str, magic_num: int) -> str:
             '</character>\r\n')
 
 
-def build_part_prompt(design: str, role: str, extra_style: str = ""):
-    frag = ROLE_PROMPTS.get(role, "part of the character")
-    bits = [f"{design.strip()}, {frag}",
-            "single isolated object, one centered drawing, whole object visible"]
-    if extra_style.strip():
-        bits.append(extra_style.strip())
-    bits.append(STYLE_SUFFIX)
-    return ", ".join(bits)
-
-
-def prep_init(crop: Image.Image, gw: int, gh: int) -> Image.Image:
-    """Frame the template art so the subject nearly fills a white canvas of the gen size.
-    Prevents the model from filling empty canvas with extra copies of the object."""
-    rgb = crop.convert("RGB")
-    # bbox of non-white art pixels
-    gray = rgb.convert("L")
-    mask = gray.point(lambda v: 255 if v < 235 else 0)
-    bbox = mask.getbbox()
-    if bbox is None:
-        return rgb.resize((gw, gh), Image.LANCZOS)
-    subject = rgb.crop(bbox)
-    sc = min(gw * 0.88 / subject.width, gh * 0.88 / subject.height)
-    subject = subject.resize((max(1, int(subject.width * sc)), max(1, int(subject.height * sc))), Image.LANCZOS)
-    canvas = Image.new("RGB", (gw, gh), (255, 255, 255))
-    canvas.paste(subject, ((gw - subject.width) // 2, (gh - subject.height) // 2))
-    return canvas
-
-
 SHEET_ROLE_ORDER = {"head": 0, "body": 1, "weapon": 2, "shield": 3, "body_big": 4,
                     "limb": 5, "hudicon": 6, "banner": 7, "bob": 8}
 
@@ -410,366 +351,10 @@ def sheet_order(cells, regions=None):
     return sorted(cells, key=lambda pc: pos.get(pc[0], (9, 0, 0)))
 
 
-HEAD_VARIANTS = {"helm": 0.30, "helm2": 0.32, "helm4": 0.34, "helm5": 0.30,
-                 "helm.A": 0.30, "helm.B": 0.38}
-
-
-HEAD_BG = (128, 128, 128)
-
-
-def head_silhouette(size, base) -> Image.Image:
-    """Generic round head + neck on mid-grey: not the knight's helmet, and no white to keep."""
-    w, h = size
-    img = Image.new("RGB", (w, h), HEAD_BG)
-    d = ImageDraw.Draw(img)
-    hw, hh = int(w * 0.86), int(h * 0.78)
-    x0, y0 = (w - hw) // 2, int(h * 0.04)
-    d.ellipse([x0, y0, x0 + hw, y0 + hh], fill=base)
-    nw = int(w * 0.34)
-    d.rectangle([w // 2 - nw // 2, y0 + hh - int(h * 0.05), w // 2 + nw // 2, h], fill=base)
-    return img
-
-
-def outline_piece(img: Image.Image, px: int = 2) -> Image.Image:
-    """Black contour at final size: a ring drawn before downscaling blurs to grey."""
-    from scipy import ndimage
-
-    a = np.asarray(img.convert("RGBA")).copy()
-    solid = a[..., 3] > 8
-    if not solid.any():
-        return img
-    ring = solid & ~ndimage.binary_erosion(solid, iterations=px)
-    a[ring, :3] = 0
-    a[ring, 3] = 255
-    return Image.fromarray(a, "RGBA")
-
-
-def fit_contain(piece: Image.Image, size, margin: float = 0.04) -> Image.Image:
-    """Scale a finished sprite to sit inside the box with a small margin, aspect kept."""
-    w, h = size
-    iw, ih = int(w * (1 - 2 * margin)), int(h * (1 - 2 * margin))
-    s = min(iw / piece.width, ih / piece.height)
-    new = piece.resize((max(1, int(piece.width * s)), max(1, int(piece.height * s))), Image.LANCZOS)
-    canvas = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    canvas.alpha_composite(new, ((w - new.width) // 2, (h - new.height) // 2))
-    return canvas
-
-
-def fit_to_template(piece: Image.Image, crop: Image.Image) -> Image.Image:
-    """Scale/centre a piece so it sits where the template's own art sits, and never as a slab.
-
-    Square padding shrinks the sprite inside its box, and a model that fills the canvas would
-    paste a rectangle; this normalises the drawn area back onto the template's ink box.
-    """
-    from scipy import ndimage
-
-    ink = np.asarray(crop.convert("RGB")).astype(int).min(axis=2) < 200
-    if ink.sum() < 50:
-        return piece
-    rgba = np.asarray(piece.convert("RGBA")).copy()
-    alpha = rgba[..., 3]
-    if (alpha > 8).mean() > 0.90:                      # filled the canvas: clip to the contour
-        keep = ndimage.binary_dilation(contour_mask(crop), iterations=2)
-        rgba[..., 3] = np.where(keep, alpha, 0)
-        piece = Image.fromarray(rgba, "RGBA")
-        alpha = rgba[..., 3]
-    m = alpha > 8
-    if m.sum() < 50:
-        return piece
-    ys, xs = np.where(m)
-    ax0, ay0, ax1, ay1 = xs.min(), ys.min(), xs.max() + 1, ys.max() + 1
-    lab, n = ndimage.label(ink)
-    if n > 1:
-        sizes = ndimage.sum(ink, lab, range(1, n + 1))
-        big = int(np.argmax(sizes)) + 1
-        # only trust the largest blob when it is the drawing, not a fragment in a busy box
-        if sizes[big - 1] > 0.5 * ink.sum():
-            ink = lab == big
-    ys, xs = np.where(ink)
-    tx0, ty0, tx1, ty1 = xs.min(), ys.min(), xs.max() + 1, ys.max() + 1
-    sprite = piece.crop((ax0, ay0, ax1, ay1))
-    scale = min((tx1 - tx0) / sprite.width, (ty1 - ty0) / sprite.height)
-    sprite = sprite.resize((max(1, int(sprite.width * scale)), max(1, int(sprite.height * scale))),
-                           Image.LANCZOS)
-    canvas = Image.new("RGBA", crop.size, (0, 0, 0, 0))
-    cx = (tx0 + tx1) // 2 - sprite.width // 2
-    cy = (ty0 + ty1) // 2 - sprite.height // 2
-    canvas.alpha_composite(sprite, (max(0, cx), max(0, cy)))
-    return canvas
-
-
-def clear_border(img: Image.Image, n: int = 3) -> Image.Image:
-    """White out the outer n pixels: the template has corner ticks that bleed into crops."""
-    a = np.asarray(img.convert("RGB")).copy()
-    a[:n, :] = 255
-    a[-n:, :] = 255
-    a[:, :n] = 255
-    a[:, -n:] = 255
-    return Image.fromarray(a)
-
-
 def image_data_url(img: Image.Image) -> str:
     buf = io.BytesIO()
     img.convert("RGB").save(buf, "PNG")
     return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
-
-
-def contour_image(crop: Image.Image) -> Image.Image:
-    mask = contour_mask(crop)
-    out = np.full(mask.shape + (3,), 255, np.uint8)
-    out[mask] = 0
-    return Image.fromarray(out)
-
-
-def square_pad(img: Image.Image, size: int = 512, margin: float = 0.12, bg=(255, 255, 255)):
-    """Centre a piece on a square canvas so every generation shares one latent grid."""
-    w, h = img.size
-    s = (size * (1 - 2 * margin)) / max(w, h)
-    nw, nh = max(8, int(w * s)), max(8, int(h * s))
-    ox, oy = (size - nw) // 2, (size - nh) // 2
-    canvas = Image.new("RGB", (size, size), bg)
-    piece = img.convert("RGBA").resize((nw, nh), Image.LANCZOS)
-    canvas.paste(piece, (ox, oy), piece)
-    return canvas, (ox, oy, nw, nh)
-
-
-def square_unpad(img: Image.Image, box, size_wh):
-    ox, oy, nw, nh = box
-    return img.crop((ox, oy, ox + nw, oy + nh)).resize(size_wh, Image.LANCZOS)
-
-
-def head_from_banner(banner: Image.Image) -> Image.Image:
-    """The banner is waist-up, so its top band is the head that seeds helm3.
-
-    Headroom is added so the top of the skull is never clipped by the crop edge.
-    """
-    w, h = banner.size
-    top = banner.convert("RGBA").crop((int(w * 0.10), 0, int(w * 0.90), int(h * 0.60)))
-    pad = int(top.height * 0.10)
-    canvas = Image.new("RGB", (top.width, top.height + pad), HEAD_BG)
-    canvas.paste(top, (0, pad), top)
-    return canvas
-
-
-def head_variant(src: Image.Image, part: str) -> Image.Image:
-    """Same head, different angle: mirror, squash, symmetry, tilt, or wiped face for the back."""
-    w, h = src.size
-    out = src
-    if part in ("helm", "helm2"):
-        out = ImageOps.mirror(src)
-        if part == "helm2":
-            out = out.resize((int(w * 0.92), h), Image.LANCZOS)
-    elif part == "helm5":
-        out = Image.blend(src, ImageOps.mirror(src), 0.5)
-    elif part == "helm.A":
-        out = src.rotate(-12, resample=Image.BICUBIC, fillcolor="white")
-    elif part == "helm.B":
-        arr = np.asarray(ImageOps.mirror(src).convert("RGBA")).copy()
-        hh, ww = arr.shape[:2]
-        y0, y1 = int(hh * 0.30), int(hh * 0.78)
-        x0, x1 = int(ww * 0.12), int(ww * 0.88)
-        band = arr[y0:y1, x0:x1]
-        opaque = band[..., 3] > 8
-        if opaque.any():
-            arr[y0:y1, x0:x1, :3] = np.median(band[..., :3][opaque], axis=0).astype(np.uint8)
-        out = Image.fromarray(arr, "RGBA")
-    return out.resize((w, h), Image.LANCZOS)
-
-
-def stack_body(head: Image.Image, body: Image.Image, size) -> Image.Image:
-    """Back Off Barbarian full body: alpha-matted head dropped onto the body's neck, no gap."""
-    w, h = size
-    canvas = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    bs = body.convert("RGBA").resize((int(w * 0.92), int(h * 0.50)), Image.LANCZOS)
-    by = h - bs.height
-    canvas.alpha_composite(bs, ((w - bs.width) // 2, by))
-    hs = head.convert("RGBA").resize((int(w * 0.84), int(h * 0.50)), Image.LANCZOS)
-    canvas.alpha_composite(hs, ((w - hs.width) // 2, max(0, by - int(hs.height * 0.86))))
-    return canvas
-
-
-def make_hudicon(head: Image.Image, size) -> Image.Image:
-    """HUD icon = the alpha-matted head, trimmed, scaled into the box with a 4px margin."""
-    w, h = size
-    src = head.convert("RGBA")
-    bb = src.getbbox()
-    if bb:
-        src = src.crop(bb)
-    iw, ih = max(8, w - 8), max(8, h - 8)
-    s = min(iw / src.width, ih / src.height)
-    new = src.resize((max(1, int(src.width * s)), max(1, int(src.height * s))), Image.LANCZOS)
-    canvas = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    canvas.alpha_composite(new, ((w - new.width) // 2, (h - new.height) // 2))
-    return canvas
-
-
-def keep_largest_rgba(img: Image.Image) -> Image.Image:
-    """Keep only the biggest opaque blob: the model sometimes adds a second arm or a stray bar."""
-    from scipy import ndimage
-
-    a = np.asarray(img.convert("RGBA")).copy()
-    m = a[..., 3] > 8
-    lab, n = ndimage.label(m)
-    if n <= 1:
-        return img
-    sizes = ndimage.sum(m, lab, range(1, n + 1))
-    a[..., 3] = np.where(lab == int(np.argmax(sizes)) + 1, a[..., 3], 0)
-    return Image.fromarray(a, "RGBA")
-
-
-def keep_largest(img: Image.Image) -> Image.Image:
-    """Keep only the biggest connected blob: kills stray lines like bigarm8's left bar."""
-    from scipy import ndimage
-
-    a = np.asarray(img.convert("RGB"))
-    ink = a.min(axis=2) < 236
-    lab, n = ndimage.label(ink)
-    if n <= 1:
-        return img
-    sizes = ndimage.sum(ink, lab, range(1, n + 1))
-    keep = int(np.argmax(sizes)) + 1
-    out = a.copy()
-    out[lab != keep] = 255
-    return Image.fromarray(out)
-
-
-def strip_specks(img: Image.Image, min_px: int = 40) -> Image.Image:
-    """Drop detached slivers (e.g. the stray bar on the left of bigarm8)."""
-    from scipy import ndimage
-
-    a = np.asarray(img.convert("RGB"))
-    ink = a.min(axis=2) < 236
-    lab, n = ndimage.label(ink)
-    if n <= 1:
-        return img
-    sizes = ndimage.sum(ink, lab, range(1, n + 1))
-    keep = [i + 1 for i, sz in enumerate(sizes) if sz >= min_px]
-    mask = np.isin(lab, keep)
-    out = a.copy()
-    out[~mask] = 255
-    return Image.fromarray(out)
-
-
-def limb_lut(crop: Image.Image, base, accent) -> Image.Image:
-    """Three-tone remap of the template limb: black outline, muscle shadow, cuff band."""
-    rgb = np.asarray(crop.convert("RGB")).astype(np.float32)
-    lum = 0.299 * rgb[..., 0] + 0.587 * rgb[..., 1] + 0.114 * rgb[..., 2]
-    out = np.empty_like(rgb)
-    out[...] = np.array(base, np.float32)
-    out[lum < 22] = (0, 0, 0)                                  # outline only
-    muscle = (lum >= 22) & (lum < 85)                          # dark grey arm/hand fill
-    out[muscle] = np.array(base, np.float32) * (0.75 + 0.35 * ((lum[muscle] - 22) / 63.0))[:, None]
-    cuff = (lum >= 85) & (lum < 236)                           # light grey cuff band
-    out[cuff] = np.array(accent, np.float32) * (0.85 + 0.25 * ((lum[cuff] - 85) / 151.0))[:, None]
-    out[lum >= 236] = 255
-    return keep_largest(Image.fromarray(np.clip(out, 0, 255).astype(np.uint8)))
-
-
-def contour_mask(crop: Image.Image):
-    """Boolean outline of the box's shape (no interior knight detail)."""
-    from scipy import ndimage
-
-    arr = np.asarray(crop.convert("RGB")).astype(int)
-    ink = arr.min(axis=2) < 200
-    filled = ndimage.binary_fill_holes(ndimage.binary_closing(ink, iterations=2))
-    return filled & ~ndimage.binary_erosion(filled, iterations=2)
-
-
-def contour_data_url(crop: Image.Image) -> str:
-    """Outline of the box's shape only - the pose without the knight's interior lines.
-
-    Feeding the raw template line art to ControlNet forces the bucket helmet and chest
-    cross onto every character, so only the silhouette contour is sent.
-    """
-    from scipy import ndimage
-
-    arr = np.asarray(crop.convert("RGB")).astype(int)
-    ink = arr.min(axis=2) < 200
-    filled = ndimage.binary_fill_holes(ndimage.binary_closing(ink, iterations=2))
-    edge = filled & ~ndimage.binary_erosion(filled, iterations=2)
-    out = np.full(arr.shape, 255, np.uint8)
-    out[edge] = 0
-    buf = io.BytesIO()
-    Image.fromarray(out).save(buf, "PNG")
-    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
-
-
-def silhouette(crop: Image.Image, base) -> Image.Image:
-    """Flat colour silhouette of the box, no line art: a clean img2img init."""
-    flat = flat_colorize(crop, base, base)
-    a = np.asarray(flat.convert("RGB")).astype(np.int16)
-    a[a.max(axis=2) < 90] = base
-    return Image.fromarray(a.astype(np.uint8), "RGB")
-
-
-def key_background(rgb: Image.Image, bg=(255, 255, 255), tol: int = 30,
-                   erode: int = 1, outline: int = 2) -> Image.Image:
-    """Remove a flat background colour from the canvas border and outline what is left.
-
-    Keying by "distance from the border colour" rather than "is it white" is what stops the
-    white helmet cap: the generation canvas is grey for heads, so nothing white is ambiguous.
-    """
-    from scipy import ndimage
-
-    a = np.asarray(rgb.convert("RGB")).astype(np.int16)
-    dist = np.abs(a - np.array(bg, np.int16)).max(axis=2)
-    bgmask = dist <= tol
-    lab, _ = ndimage.label(bgmask)
-    edge = np.concatenate([lab[0], lab[-1], lab[:, 0], lab[:, -1]])
-    bg_labels = set(np.unique(edge).tolist()) - {0}
-    outside = np.isin(lab, list(bg_labels)) if bg_labels else np.zeros_like(bgmask)
-    alpha = np.where(outside, 0, 255).astype(np.uint8)
-    if erode:
-        alpha = ndimage.binary_erosion(alpha > 0, iterations=erode).astype(np.uint8) * 255
-    solid = alpha > 0
-    # A white cap sits on the sprite's own edge; an eye highlight is enclosed by colour.
-    near_white = (a.min(axis=2) > 236) & solid
-    lab2, n2 = ndimage.label(near_white)
-    if n2:
-        ring = solid & ~ndimage.binary_erosion(solid, iterations=2)
-        touch = set(np.unique(lab2[ring]).tolist()) - {0}
-        sizes = ndimage.sum(near_white, lab2, range(1, n2 + 1))
-        small = {i for i, sz in enumerate(sizes, 1) if sz < 0.15 * solid.sum()}
-        caps = touch & small          # a pale character is one big blob, a cap is a small band
-        if caps:
-            solid &= ~np.isin(lab2, list(caps))
-            alpha = solid.astype(np.uint8) * 255
-    rgba = np.dstack([a.astype(np.uint8), alpha])
-    if outline:
-        ring = solid & ~ndimage.binary_erosion(solid, iterations=outline)
-        rgba[ring, :3] = 0
-    return Image.fromarray(rgba, "RGBA")
-
-
-def alpha_from_bg(rgb: Image.Image, thr: int = 238, erode: int = 1) -> Image.Image:
-    """Transparent background, opaque drawing.
-
-    The official template is transparent white inside the boxes; painting opaque white
-    would show as white rectangles in game. Near-white pixels connected to the box border
-    become transparent, while enclosed white details (eyes, trim) stay opaque.
-    """
-    from scipy import ndimage
-
-    low = np.asarray(rgb.convert("RGB")).min(axis=2)
-    white = low >= thr
-    lab, _ = ndimage.label(white)
-    edge = np.concatenate([lab[0], lab[-1], lab[:, 0], lab[:, -1]])
-    bg_labels = set(np.unique(edge)) - {0}
-    bg = np.isin(lab, list(bg_labels)) if bg_labels else np.zeros_like(white)
-    alpha = np.where(bg, 0, 255).astype(np.uint8)
-    if erode:
-        alpha = ndimage.binary_erosion(alpha > 0, iterations=erode).astype(np.uint8) * 255
-    return Image.fromarray(alpha, "L")
-
-
-def gen_size(w, h, target_min=512, cap=1024):
-    """Upscale box to a diffusion-friendly size (min side ~ target_min, /8 aligned)."""
-    scale = max(1.0, target_min / max(w, h))
-    sw, sh = int(w * scale), int(h * scale)
-    if max(sw, sh) > cap:
-        k = cap / max(sw, sh)
-        sw, sh = int(sw * k), int(sh * k)
-    return (max(64, sw // 8 * 8), max(64, sh // 8 * 8))
 
 
 class Job:
@@ -821,11 +406,23 @@ class Engine:
         return {
             "app": {"name": APP_NAME, "version": APP_VERSION},
             "swarm": {"url": self.swarm.url, "up": self.swarm.is_up(), "root": self.swarm.root},
+            "models": self._installed_models(),
             "template": template,
             "game_dir": game,
             "pbp_local": str(Path(game) / "data" / "pbplocal") if game else "",
             "settings": self.settings,
         }
+
+    def _installed_models(self):
+        """Which backends can run right now: {klein, qwen, anima: bool}; empty while SwarmUI is down."""
+        import pipeline
+
+        try:
+            have = set(self.swarm.list_models())
+        except Exception:
+            return {}
+        return {"klein": pipeline.EDIT_MODELS["klein"] in have, "qwen": pipeline.EDIT_MODELS["qwen"] in have,
+                "anima": pipeline.ANIMA_MODEL in have}
 
     def start_job(self, params):
         with self._job_lock:
@@ -845,283 +442,85 @@ class Engine:
 
     # --- the pipeline ----------------------------------------------
     def _run_job(self, job: Job):
+        """Master design -> every piece (pipeline.py) -> painting.png + pbp.xml."""
+        import pipeline
+
         p = job.params
         try:
             job.state = "running"
             job.job_dir.mkdir(parents=True, exist_ok=True)
-
-            # 1. template
             job.phase = "template"
             tpl_path, src = resolve_template(self.settings)
             self.template_path, self.template_source = tpl_path, src
             job.say(f"Template: {tpl_path} ({src})")
             base = Image.open(tpl_path).convert("RGBA")
-
-            # 2. pick regions
-            mode = p.get("mode", "full")
-            if mode == "sample":
-                seen, regions = set(), []
-                for r in REGIONS:
-                    if r["role"] not in seen:
-                        seen.add(r["role"])
-                        regions.append(r)
-            else:
-                regions = list(REGIONS)
-            job.total = len(regions)
-
-            solid = p.get("engine", "ai") == "solid"
-            design = p.get("design", "").strip() or "a heroic cartoon knight"
-            extra = p.get("extra_style", "")
-            creativity = float(p.get("creativity", self.settings.get("creativity", 0.55)))
-            steps = int(p.get("steps", self.settings.get("steps", 40)))
-            cfg = float(p.get("cfg", self.settings.get("cfg", 3.0)))
-            sampler = (p.get("sampler", self.settings.get("sampler", "")) or "").strip()
-            lock = bool(p.get("palette_lock", self.settings.get("palette_lock", False)))
-            use_cn = bool(p.get("controlnet", self.settings.get("controlnet", True)))
-            cn_strength = float(p.get("controlnet_strength", self.settings.get("controlnet_strength", 1.0)))
-            scheduler = (p.get("scheduler", self.settings.get("scheduler", "")) or "").strip()
-            seed_base = int(p.get("seed", 0) or 0)
-            if not seed_base and not solid:
-                # one seed for the whole job: separate random seeds per piece is why the
-                # helmet, body and arms looked like three different characters
-                seed_base = random.randint(1, 2**31 - 1)
-                job.say(f"Seed: {seed_base} (shared by all pieces)")
-            # the user's colours win; with none named, the first AI piece picks the palette
-            explicit = has_colors(design + " " + extra) or bool(p.get("color1") or p.get("color2"))
-            if explicit:
-                base_col, accent_col = parse_palette(
-                    design + " " + extra, p.get("color1") or "#3fae4a", p.get("color2") or "#c9303a")
-                pal = pal_words(base_col, accent_col) + ((", " + extra) if extra else "")
-                job.say(f"Palette: {pal}")
-            elif solid:
-                base_col, accent_col = parse_palette(
-                    design + " " + extra, p.get("color1") or "#3fae4a", p.get("color2") or "#c9303a")
-                pal = pal_words(base_col, accent_col) + ((", " + extra) if extra else "")
-                job.say(f"Palette: {pal}")
-            else:
-                base_col, accent_col = (235, 235, 235), (200, 200, 200)
-                pal = extra or ""
-                job.say("Palette: none named - the first piece decides it")
-
-            if not solid:
-                job.phase = "backend"
-                job.say("Checking local AI backend (SwarmUI)...")
-                self.swarm.ensure_up(log=job.say)
-                # "up" is not "able to generate": wait for a real backend, or fail loudly
-                self.swarm.wait_ready(log=job.say, timeout_s=240)
-                if sampler or scheduler:
-                    # a fresh install may not have this sampler/scheduler; fall back instead of failing every piece
-                    try:
-                        self.swarm.generate("test", 128, 128, seed=1, steps=2, cfg=cfg,
-                                            sampler=sampler, scheduler=scheduler)
-                    except Exception as e:
-                        job.say(f"Sampler/scheduler {sampler or '-'}/{scheduler or '-'} not accepted "
-                                f"({str(e)[:120]}); using the model defaults.")
-                        sampler = scheduler = ""
-
-            canvas = base.copy()
-            sheet_cells = []
-            total = len(regions)
-            ai_streak = 0
-            derived = None
-            # --- generation plan -------------------------------------------------
-            # The banner anchors the design, helm3 anchors the head, everything else derives
-            # from them. Order matters: each piece may use an earlier one as its init image.
-            ORDER = ["selectbanner", "helm3", "helm", "helm2", "helm4", "helm5", "helm.A", "helm.B",
-                     "pbod1", "pbodland", "knightbodrun", "pbodspin", "pbodback",
-                     "bigbod1", "bigbod2", "bigbod3", "bigbod4", "bigbodback", "bigbod911",
-                     "sword", "shield1", "shield2", "backoffb", "hudicon"]
-            by_part = {r["part"]: r for r in REGIONS}
-            plan = [by_part[k] for k in ORDER if k in by_part]
-            plan += [r for r in REGIONS if r["role"] == "limb" and r["part"] not in ORDER]
-            total = len(plan)
-            made = {}
-            for i, region in enumerate(plan, 1):
-                x, y, w, h = region["rect"]
-                part, role = region["part"], region["role"]
-                job.current = f"{part} ({role})"
-                job.phase = "generating"
-                job.say(f"[{i}/{total}] {part} ({role}) {w}x{h}")
-                crop = base.crop((x, y, x + w, y + h)).convert("RGB")
-                crop = clear_border(crop, 3)          # white corner ticks never enter a piece
-                flat, bmode = colorize_box(crop, role, base_col, accent_col)
-                out = limb_lut(crop, base_col, accent_col) if (role == "limb" and not solid) else flat
-                how = "flat"
-                if not solid:
-                    how = f"AI {creativity:.2f}"
-                    seed = seed_base
-                    prompt = detail_prompt(design, role, pal, part)
-                    crea = min(0.85, max(0.2, creativity))
-                    src = None
-                    if part == "helm3" and made.get("selectbanner") is not None:
-                        src, crea = head_from_banner(made["selectbanner"]), 0.50
-                    elif part in HEAD_VARIANTS and made.get("helm3") is not None:
-                        src, crea = head_variant(made["helm3"], part), HEAD_VARIANTS[part]
-                    elif part == "backoffb" and made.get("helm3") is not None and made.get("pbod1") is not None:
-                        src, crea = stack_body(made["helm3"], made["pbod1"], (w, h)), 0.40
-                    if part == "selectbanner":
-                        # pure txt2img: the banner invents the character before anything copies it
-                        init_sq, box, cn, crea = None, None, None, 0.85
-                    elif role == "head":
-                        # heads derive from the head anchor (or a generic round head + neck) and
-                        # skip ControlNet: the knight's helmet outline must not be traced on
-                        init_sq, box = square_pad(src if src is not None
-                                                  else head_silhouette((w, h), base_col),
-                                                  bg=HEAD_BG)
-                        cn = None
-                    else:
-                        if role == "limb":
-                            # plain colour silhouette, not the LUT art: the model must be free to
-                            # invent armour and sleeves; LUT is only the failure fallback
-                            use_init = silhouette(crop, base_col)
-                        else:
-                            use_init = src if src is not None else silhouette(crop, base_col)
-                        init_sq, box = square_pad(use_init)
-                        cn = image_data_url(square_pad(contour_image(crop))[0]) if use_cn else None
-                    ai, err = None, None
-                    for attempt in (1, 2):
-                        try:
-                            ai = self.swarm.generate(prompt, 512, 512, seed=seed,
-                                                     init_png=init_sq, creativity=crea,
-                                                     steps=steps, cfg=cfg,
-                                                     sampler=sampler, scheduler=scheduler,
-                                                     negative=negative_for(design + " " + extra),
-                                                     controlnet=cn, controlnet_strength=cn_strength)
-                            ai = square_unpad(ai.convert("RGB"), box, (w, h)) if box else ai.convert("RGB")
-                            # key from the canvas border colour: the sprite's own alpha, never
-                            # the template's knight outline, and never a white cap left behind
-                            ai = key_background(ai, bg=HEAD_BG if role == "head" else (255, 255, 255),
-                                                tol=30)
-                            if self._white_frac(ai.convert("RGB")) > 0.75 and attempt == 1:
-                                crea = max(0.2, crea - 0.15)   # blank: retry softer once
-                                continue
-                            break
-                        except Exception as e:
-                            err = e
-                            if use_cn and "controlnet" in str(e).lower() and "init image" not in str(e).lower():
-                                use_cn = False
-                                job.say("    ControlNet model not available - continuing without it")
-                                continue
-                            if attempt == 1:
-                                time.sleep(1.5)
-                    if ai is None:
-                        ai_streak += 1
-                        job.say(f"    {part}: AI failed ({err})")
-                        if ai_streak >= 4:
-                            raise RuntimeError(
-                                f"AI backend stopped responding ({err}). Nothing was written - "
-                                f"fix SwarmUI (backends: errored/loading) and generate again.")
-                    else:
-                        ai_streak = 0
-                        made[part] = ai
-                        if not explicit and derived is None and part == "selectbanner":
-                            base_col, accent_col = extract_palette(ai)
-                            derived = (base_col, accent_col)
-                            pal = pal_words(base_col, accent_col) + ((", " + extra) if extra else "")
-                            job.say(f"Palette from the banner: {pal}")
-                        wf_ai, wf_flat = self._white_frac(ai.convert("RGB")), self._white_frac(flat)
-                        if 1 - wf_ai < 0.03 or (wf_ai > 0.45 and wf_ai > wf_flat + 0.12):
-                            job.say(f"    {part}: AI piece blank/erased, keeping flat fill")
-                        else:
-                            if lock and (explicit or derived):
-                                out = key_background(palette_lock(ai.convert("RGB"), base_col, accent_col))
-                            else:
-                                out = ai
-                            how = f"AI {crea:.2f}"
-                if part == "hudicon" and made.get("helm3") is not None:
-                    out = make_hudicon(made["helm3"], (w, h))     # no AI: reuse the head
-                    how = "head crop"
-                elif part == "backoffb" and made.get("helm3") is not None and made.get("pbod1") is not None:
-                    out = stack_body(made["helm3"], made["pbod1"], (w, h))   # no AI, no white fill
-                    how = "head+body"
-                job.say(f"[{i}/{total}] {part} ({role}) {w}x{h} - {how}")
-                if out.mode != "RGBA":
-                    out = key_background(out, bg=(255, 255, 255), tol=30)
-                if role == "limb":
-                    out = keep_largest_rgba(out)
-                if role in ("body_big", "limb"):
-                    # limbs and giants sit exactly where the template's own art sits, so the arm
-                    # cannot drift onto the crop edge
-                    out = fit_to_template(out, crop)
-                elif role not in ("hudicon", "backoffb"):
-                    out = fit_contain(out, (w, h), 0.04)
-                # after the resize (a pre-resize ring blurs away); thin pieces get 1px so the
-                # outline cannot swallow the arm
-                out = outline_piece(out, 1 if min(out.size) < 200 else 2)
-                canvas.paste(out, (x, y))
-                sheet_cells.append((part, out.copy()))
-                job.done = i
-                prev = canvas.resize((1024, 1024), Image.LANCZOS)
-                prev.save(job.job_dir / "live_preview.png")
-                job.result = {"preview": str(job.job_dir / "live_preview.png"),
-                              "preview_name": f"preview_{job.done}"}
-
-            # 3. compose + save outputs
-            job.phase = "compose"
-            export_dir = Path(p.get("output_dir") or self.settings["output_dir"])
-            export_dir.mkdir(parents=True, exist_ok=True)
-            skill = Path(__file__).resolve().parent  # noqa  (serve dir resolved in server)
-            job.say(f"Writing {export_dir}")
-            tmp_png = job.job_dir / "painting.png"
-            canvas.convert("RGBA").save(tmp_png, "PNG", optimize=True)
-            master = job.job_dir / "painting_master.png"
-            shutil.copyfile(tmp_png, master)
-
-            name = (p.get("name") or "Custom Character").strip()[:40]
-            magic_num = magic_number(p.get("magic") or "Poison")
-            # atomic-ish write into the folder the game watches
-            shutil.copyfile(tmp_png, export_dir / "painting.png.tmp")
-            os.replace(export_dir / "painting.png.tmp", export_dir / "painting.png")
-            xml = pbp_xml(name, magic_num)
-            (export_dir / "pbp.xml.tmp").write_text(xml, encoding="utf-8", newline="")
-            os.replace(export_dir / "pbp.xml.tmp", export_dir / "pbp.xml")
-
-            # contact sheet of generated parts
-            if sheet_cells:
-                cols = 6
-                cell = 200
-                rows = (len(sheet_cells) + cols - 1) // cols
-                sheet = Image.new("RGB", (cols * cell, rows * cell), (24, 24, 28))
-                d = ImageDraw.Draw(sheet)
-                for k, (part, img) in enumerate(sheet_order(sheet_cells)):
-                    sc = min((cell - 26) / img.width, (cell - 26) / img.height)
-                    th = img.resize((max(1, int(img.width * sc)), max(1, int(img.height * sc))))
-                    cx, cy = (k % cols) * cell, (k // cols) * cell
-                    sheet.paste(th, (cx + 13, cy + 22), th)
-                    d.text((cx + 8, cy + 6), part, fill=(120, 220, 120))
-                sheet.save(job.job_dir / "pieces_sheet.png")
-
-            job.result = {
-                "painting": str(master),
-                "preview": str(master),
-                "sheet": str(job.job_dir / "pieces_sheet.png"),
-                "export_dir": str(export_dir),
-                "name": name,
-                "magic": p.get("magic"),
-                "magic_num": magic_num,
-            }
-            job.state, job.phase = "done", "done"
-            job.say(f"Done. Folder ready: {export_dir}")
+            design = (p.get("design", "").strip() or "a heroic cartoon knight")
+            if p.get("extra_style"):
+                design += ", " + p["extra_style"].strip()
+            backend = p.get("backend") or self.settings.get("backend") or "klein"
+            seed = int(p.get("seed", 0) or 0) or random.randint(1, 2**31 - 1)
+            job.say(f"Backend: {backend}   seed: {seed}")
+            job.phase = "backend"
+            self.swarm.ensure_up(log=job.say)
+            self.swarm.wait_ready(log=job.say, timeout_s=240)
+            last = APP_DATA / "last_master.png"
+            if p.get("reuse_master") and last.exists() and not p.get("master_png"):
+                p = dict(p, master_png=str(last))
+            canvas, cells = pipeline.run(self, job, base, p, design, seed, backend)
+            shutil.copyfile(job.job_dir / "master.png", last)
+            self._export(job, canvas, cells, p)
+        except pipeline.Cancelled:
+            job.state, job.phase = "cancelled", "cancelled"
+            job.say("Cancelled - nothing was written.")
         except Exception as e:
             job.state, job.phase = "error", "error"
             job.error = f"{type(e).__name__}: {e}"
             job.say("ERROR: " + job.error)
 
-    @staticmethod
-    def _solid_region(crop: Image.Image, color1: str, color2: str, role: str) -> Image.Image:
-        """No-AI fallback: multiply the template art with a flat color (white->color, black->black)."""
-        try:
-            solid = Image.new("RGB", crop.size, color1 if role not in ("weapon", "banner") else color2)
-        except Exception:
-            solid = Image.new("RGB", crop.size, "#3fae4a")
-        rgb = crop.convert("RGB")
-        return ImageChops.multiply(rgb, solid).convert("RGBA")
+    def _export(self, job, canvas, sheet_cells, p):
+        """Write painting.png + pbp.xml into the output folder and a contact sheet into the job dir."""
+        job.phase = "compose"
+        export_dir = Path(p.get("output_dir") or self.settings["output_dir"])
+        export_dir.mkdir(parents=True, exist_ok=True)
+        job.say(f"Writing {export_dir}")
+        tmp_png = job.job_dir / "painting.png"
+        canvas.convert("RGBA").save(tmp_png, "PNG", optimize=True)
+        master = job.job_dir / "painting_master.png"
+        shutil.copyfile(tmp_png, master)
 
-    @staticmethod
-    def _white_frac(img: Image.Image) -> float:
-        """Fraction of near-white pixels among the opaque ones: detects an erased piece."""
-        a = np.asarray(img.convert("RGBA"))
-        opaque = a[..., 3] > 8
-        if not opaque.any():
-            return 1.0
-        return float((a[..., :3][opaque].min(axis=1) > 236).mean())
+        name = (p.get("name") or "Custom Character").strip()[:40]
+        magic_num = magic_number(p.get("magic") or "Poison")
+        # atomic-ish write into the folder the game watches
+        shutil.copyfile(tmp_png, export_dir / "painting.png.tmp")
+        os.replace(export_dir / "painting.png.tmp", export_dir / "painting.png")
+        xml = pbp_xml(name, magic_num)
+        (export_dir / "pbp.xml.tmp").write_text(xml, encoding="utf-8", newline="")
+        os.replace(export_dir / "pbp.xml.tmp", export_dir / "pbp.xml")
+
+        # contact sheet of generated parts
+        if sheet_cells:
+            cols = 6
+            cell = 200
+            rows = (len(sheet_cells) + cols - 1) // cols
+            sheet = Image.new("RGB", (cols * cell, rows * cell), (24, 24, 28))
+            d = ImageDraw.Draw(sheet)
+            for k, (part, img) in enumerate(sheet_order(sheet_cells)):
+                sc = min((cell - 26) / img.width, (cell - 26) / img.height)
+                th = img.resize((max(1, int(img.width * sc)), max(1, int(img.height * sc))))
+                cx, cy = (k % cols) * cell, (k // cols) * cell
+                sheet.paste(th, (cx + 13, cy + 22), th)
+                d.text((cx + 8, cy + 6), part, fill=(120, 220, 120))
+            sheet.save(job.job_dir / "pieces_sheet.png")
+
+        job.result = {
+            "painting": str(master),
+            "preview": str(master),
+            "sheet": str(job.job_dir / "pieces_sheet.png"),
+            "master": str(job.job_dir / "master.png"),
+            "export_dir": str(export_dir),
+            "name": name,
+            "magic": p.get("magic"),
+            "magic_num": magic_num,
+        }
+        job.state, job.phase = "done", "done"
+        job.say(f"Done. Folder ready: {export_dir}")
