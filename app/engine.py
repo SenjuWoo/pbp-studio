@@ -24,7 +24,7 @@ from regions import REGIONS, TEMPLATE_SIZE
 from magics import magic_number
 
 APP_NAME = "PBP-Studio"
-APP_VERSION = "0.9.1"
+APP_VERSION = "0.9.2"
 APP_DATA = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / APP_NAME
 SETTINGS_FILE = APP_DATA / "settings.json"
 TEMPLATE_CACHE = APP_DATA / "template" / "painting.png"

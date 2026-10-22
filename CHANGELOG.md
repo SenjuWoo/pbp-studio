@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.2 - repository refresh
+No behaviour change; the shipped README and docs now describe the current pipeline.
+- README rewritten (status, requirements, model table, run steps, real example images of generated characters
+  with the template's artwork left out, CI badge); `docs/HOW-IT-WAS-MADE.txt` updated (measured pose per slot,
+  front-head and torso bridges, measured head turns, timeouts and recovery).
+- Removed dead code from the retired img2img pipeline: the per-role prompt / creativity tables and
+  `regions_by_role` in `regions.py` (they still held the wrong head angles) and the manual `tests/test_swarm.py` probe.
+- GitHub repository description and topics updated; `LICENSE` is now the plain MIT text (the lines were comment-prefixed); `requirements.txt` comment fixed.
+
 ## 0.9.1 - poses follow the template
 Audited every box against the template wireframes and ten real Workshop characters.
 - **Heads:** slots 1-3 now face almost the viewer with a growing turn to the viewer's right (they faced left before),

@@ -1,72 +1,12 @@
-# PBP Studio -- region map for the official Painter Boss Paradise template (painting.png 2048x2048).
-# Baked from tools/detect_boxes.py output (white draw-box detection) and verified by rendering
-# overlay/sheet previews of every box against the official template shipped with the game
-# (data/pbplocal/violet/painting.png) and by matching to the sprite-name table extracted from
-# castle.exe ([helm helm2..5 pbod1.. shield1 shield2 helm.A helm.B bigbod.. bigarm.. selectbanner
-#  hudicon sword backoffb magic]).
+# PBP Studio -- region map for the official Painter Boss Paradise template (painting.png, 2048x2048).
 #
-# Every region is one transparent draw-box of the official template (the 39 transparent connected
-# components of violet/painting.png, exact to the pixel; the old wireframe-sized rects were ~60% of this).
-# Every region is one white draw-box in the template. The game slices these regions out of
-# painting.png as the character sprites. Coordinates are (x, y, w, h) in template pixels.
-# "role" drives the AI prompt fragment and default img2img creativity per region.
+# Every region is one draw-box of the template: the 39 transparent connected components of
+# data/pbplocal/violet/painting.png, exact to the pixel (the game slices these out of painting.png as the
+# character sprites). Coordinates are (x, y, w, h) in template pixels, in template reading order.
+# "part" is the game's sprite name (from castle.exe's string table); "role" groups boxes for layout_stats.json
+# and the pipeline (head, body, body_big, limb, weapon, shield, hudicon, banner, bob).
 
 TEMPLATE_SIZE = 2048  # official template is 2048x2048 RGBA
-
-ROLE_PROMPTS = {
-    # Fragment appended to the global design prompt for each role:
-    "head":      "close-up of the character's HEAD / helmet design, front view",
-    "body":      "the character's TORSO / chest armor with belt, front view",
-    "body_big":  "the character's LARGE beefy torso form, front view",
-    "limb":      "one ARM segment piece of the character in the exact pose shown",
-    "weapon":    "the character's WEAPON, held at the same angle and shape as the template",
-    "shield":    "a small SHIELD matching the character's design, front view",
-    "hudicon":   "a small icon showing the character's head and shoulders",
-    "banner":    "large character art of the character's upper body for the selection banner",
-    "bob":       "a small full-body miniature version of the character",
-}
-
-# Per-slot pose text, from the template's own orientation map (every box is a different angle).
-# Without this the model paints a front view into every box.
-SLOT_PROMPTS = {
-    "helm": "head facing three-quarter left",
-    "helm2": "head facing slightly front-left",
-    "helm3": "head facing three-quarter right",
-    "helm4": "head in profile facing right",
-    "helm5": "head facing straight forward",
-    "helm.A": "head tilted back, flinch pose",
-    "helm.B": "back of the head, no face, no eyes, no mouth",
-    "pbod1": "chibi torso and legs standing, three-quarter right",
-    "pbodland": "chibi torso and legs crouched, landing frame",
-    "knightbodrun": "chibi torso and legs running, arms swinging",
-    "pbodspin": "chibi torso and legs tucked, mid-air spin",
-    "pbodback": "chibi torso and legs seen from behind",
-    "sword": "single sword standing vertically, tip up, hilt at the bottom",
-    "shield1": "shield seen from the front",
-    "shield2": "shield seen from the side, narrow edge only",
-    "bigbod1": "huge muscular torso and small legs, upright, three-quarter right, walk frame 1",
-    "bigbod2": "huge muscular torso and small legs, upright, three-quarter right, walk frame 2",
-    "bigbod3": "huge muscular torso and small legs, upright, three-quarter right, walk frame 3",
-    "bigbod4": "huge muscular torso lying horizontally on its back",
-    "bigbodback": "huge muscular torso seen from behind",
-    "bigbod911": "huge muscular torso tilted diagonally at 45 degrees, falling",
-    "bigarm1": "single muscular arm, bent elbow", "bigarm2": "single muscular arm, fist",
-    "bigarm3": "single muscular arm, outstretched", "bigarm4": "single muscular arm, raised",
-    "bigarm5": "single muscular arm, downward punch", "bigarm6": "single muscular arm, flexed",
-    "bigarm7": "single clenched fist", "bigarm8": "single muscular arm, forearm",
-    "bigarm9": "single muscular arm, elbow bent back",
-    "bigleft1": "single muscular left arm, open hand", "bigleft2": "single muscular left arm, fist",
-    "bighand1": "single clenched fist", "bigarmgrap": "single muscular arm, grabbing hand",
-    "bigarmthro": "single muscular arm, throwing", "bigarm911": "single muscular arm, raised up",
-    "hudicon": "close-up of the head filling the square icon",
-    "selectbanner": "waist-up character illustration, dynamic hero pose",
-    "backoffb": "full-body chibi character standing, three-quarter view",
-}
-
-ROLE_CREATIVITY = {   # default img2img denoise per role (UI slider overrides with an offset)
-    "head": 0.72, "body": 0.70, "body_big": 0.70, "limb": 0.78,
-    "weapon": 0.85, "shield": 0.85, "hudicon": 0.78, "banner": 0.75, "bob": 0.80,
-}
 
 # The 39 draw-boxes, in template reading order. part = game sprite name (best-effort mapping,
 # verified visually; harmless if two UI-only slots are swapped since all carry the same design).
@@ -120,13 +60,6 @@ REGIONS = [
 ]
 
 assert len(REGIONS) == 39, f"expected 39 regions, got {len(REGIONS)}"
-
-
-def regions_by_role():
-    out = {}
-    for r in REGIONS:
-        out.setdefault(r["role"], []).append(r)
-    return out
 
 
 if __name__ == "__main__":

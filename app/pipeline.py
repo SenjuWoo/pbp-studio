@@ -1,4 +1,4 @@
-# PBP Studio -- v0.8 piece pipeline.
+# PBP Studio -- piece pipeline.
 #
 # One MASTER design (made by Anima from the user's text, or supplied) is the single source of identity.
 # Every draw-box is then derived from that master:

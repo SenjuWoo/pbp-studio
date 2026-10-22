@@ -1,4 +1,4 @@
-"""Offline tests for the v0.8 pipeline: no SwarmUI, no game install, no third-party art needed."""
+"""Offline tests for the piece pipeline: no SwarmUI, no game install, no third-party art needed."""
 import base64
 import io
 import sys

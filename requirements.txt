@@ -1,5 +1,5 @@
 # Runtime requirements for PBP Studio.
-# Pillow does the image work; numpy+scipy make the template region fill fast and robust.
+# Pillow: image I/O and resizing. numpy + scipy: cut-out, quality gates, layout fitting.
 pillow>=10.0
 numpy>=1.24
 scipy>=1.10

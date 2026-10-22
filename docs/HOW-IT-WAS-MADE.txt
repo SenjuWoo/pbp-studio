@@ -2,7 +2,7 @@ PBP STUDIO - HOW IT WAS MADE / FORMAT NOTES
 ==========================================
 
 Goal: make custom Castle Crashers characters for the "Painter Boss Paradise" DLC as easily as
-possible, with local AI doing the heavy lifting.
+possible, with local AI doing the heavy lifting, and have every piece match the template.
 
 1) THE FORMAT (verified against the installed game)
 --------------------------------------------------
@@ -30,16 +30,23 @@ possible, with local AI doing the heavy lifting.
   bigarm1..9/bigleft1/bigleft2/bighand1/bigarmgrap/bigarmthro/bigarm911 (15 limbs),
   hudicon, selectbanner, backoffb (3 UI art boxes).
 
-3) WHAT REAL WORKSHOP CHARACTERS LOOK LIKE (measured on 37 decoded atlases)
-----------------------------------------------------------------------------
+3) WHAT THE TEMPLATE AND REAL WORKSHOP CHARACTERS SHOW (measured on 37 decoded atlases)
+----------------------------------------------------------------------------------------
+Placement and size (median over the atlases; shipped as app/layout_stats.json, numbers only):
 - Every head box holds ONE head, at the same place: x 24-78 %, y 47-89 % of the box (bottom anchored).
 - Bodies are a small torso garment only (no head, no legs): x 35-66 %, y 66-94 %.
 - The sword box holds one vertical weapon; shield1 a small item; shield2 its thin edge.
 - Giant boxes hold a headless, armless round torso in the character's clothing colours.
 - Most creators leave the 15 beefy limbs as the template's dark default art.
 - hudicon and selectbanner are full-bleed illustrations; backoffb is a figurine on a blue base.
-- These medians ship as app/layout_stats.json (numbers only). The atlases themselves are third-party
-  art: they were only analysed locally and are never part of this repository.
+Pose per slot (template wireframes + ten real characters: KATE, NARUTO, SMASH GIRL, SQUIRREL GIRL,
+WAIFU KNIGHT, HEYLEE, SASUKO, LUCOA, VANA, MARISSA):
+- Heads 1-3 face almost the viewer with a growing turn to the viewer's RIGHT; 4 is a right profile;
+  5 is straight on; 6 is a forward tilt (hurt); 7 is the back of the head.
+- Giants: 1 front, 2 three-quarter right, 3 side profile leaning right, 4 lying on its BACK (chest up,
+  collar at the left, flat underside, a wide low loaf), 5 back, 6 falling diagonally.
+The atlases themselves are third-party art: they were only analysed locally and are never part of this
+repository.
 
 4) WHY THE OLD "PER-BOX IMG2IMG" PIPELINE FAILED (0.1-0.7)
 -----------------------------------------------------------
@@ -47,23 +54,31 @@ possible, with local AI doing the heavy lifting.
   and models filled a box with several small figures (collages).
 - The ControlNet guide never reached SwarmUI: the app sent "controlnetimage", SwarmUI's id is
   "controlnetimageinput", so the unknown field was ignored and the init image was traced instead.
-- Fixes in 0.8: one master design, edit-model redraws that reference it, exact boxes, real placement
-  targets, quality gates, and the correct ControlNet parameter for the Anima-only model.
+- The pose text per box came from guesses and was wrong (heads 1-2 faced left, head 6 tilted back).
 
-5) THE 0.8 PIPELINE
--------------------
-- Master: Anima (txt2img, 1024) from the user's text, or the user's own image.
-- Edit backends (Flux.2 Klein 4B fp8, or Qwen Image 2.1 turbo int8) receive the master as a reference
-  image and a text command per piece ("head ... turned in three-quarter view, face turned to the right").
-  Edit models follow text pose commands well but ignore abstract helmet sketches, so poses come from text.
+5) THE CURRENT PIPELINE (app/pipeline.py)
+-----------------------------------------
+- Master: Anima (txt2img, 1024) from the user's text, or the user's own image / the last design.
+- Edit backends (Flux.2 Klein 4B fp8 by default, or Qwen Image 2.1 turbo int8) receive the master as a
+  reference image and a text pose command per piece. Edit models follow text pose commands well but
+  ignore abstract helmet sketches, so poses come from text.
+- Heads: the front head (helm5) is drawn first and then used as a second reference for every other angle,
+  so the face stays identical. Klein's turn varies per seed, so the graded slots 1-3 draw three candidates
+  and keep the one whose silhouette turn (1 - IoU against the front head, as a share of the front-to-profile
+  span) is closest to 0.22 / 0.36 / 0.55. All seven heads are scaled to the pixel area of the front head so
+  they line up with the body below.
 - Bodies and giants go through a torso-reference piece first (master -> torso garment -> poses), which
-  carries the clothing colours; a colour-histogram gate (Bhattacharyya >= 0.70 against the reference;
-  measured good 0.81-0.99, wrong colours 0.57-0.62) and an aspect gate reject wrong pieces and retry.
-- Landing, running, spinning, the lying and falling giants and the shield edge are derived from other
-  pieces by squash / rotate; this is deterministic and consistent.
+  carries the clothing colours. Gates: colour histogram (Bhattacharyya >= 0.70 against the reference;
+  measured good 0.81-0.99, wrong colours 0.57-0.62), aspect (too tall = a figure came back), blank, filled
+  canvas, several figures; up to 3 seeds, and when all fail the attempt closest to the reference is kept.
+- Landing, running and spinning bodies, the falling giant and the shield edge are derived from other pieces
+  by squash / rotate (deterministic, consistent). The 4th giant is the side-profile giant turned 90 degrees
+  counter-clockwise, flattened and stretched: lying on its back.
 - cut_out: white canvas -> alpha with a black soft edge (outlines are black, so alpha = darkness).
-- fit: scale to the median real bbox, bottom-anchored for heads/bodies/giants/figure.
+- fit: scale to the median real bbox (heads: the shared area), bottom-anchored for heads/bodies/giants/figure.
 - Limbs keep the template art.
+- Defaults come from measured sweeps (docs/TUNING.md): Anima er_sde / simple, CFG 4, 40 steps, tags + prose
+  prompt; Klein 6 steps at 1024.
 
 6) MAGIC TABLE
 --------------
@@ -76,12 +91,15 @@ possible, with local AI doing the heavy lifting.
 -------------------
 - SwarmUI (or anything exposing its HTTP API) on http://localhost:7801.
 - API used: POST /API/GetNewSession, /API/GenerateText2Image (promptimages = reference images joined
-  with "|"; controlnetimageinput for ControlNet), /API/ListModels, /API/ListBackends.
+  with "|"; controlnetimageinput for ControlNet), /API/ListModels, /API/ListBackends,
+  /API/RestartBackends, /API/InterruptAll.
 - The response lists images as "View/<user>/raw/<date>/<file>.png"; the file lands in
   <SwarmRoot>/Output/<user>/raw/<date>/<file>.png. SwarmUI may answer a moment before the file is
   flushed, so the client waits and falls back to the newest png.
-- If SwarmUI answers "No backends available" its ComfyUI backend died: POST /API/RestartBackends
-  {backend: "all"} and wait for status "running".
+- If SwarmUI answers "No backends available" its ComfyUI backend died: the client restarts it once
+  (RestartBackends, then waits for status "running"). A render that never returns is cut off after a
+  per-backend timeout (Klein 90 s, Qwen 240 s, Anima 120 s, 300 s for the first call that loads a model),
+  interrupted, and retried with a new seed.
 
 8) SERVER / UI
 --------------
@@ -96,6 +114,6 @@ possible, with local AI doing the heavy lifting.
 ----------
 - py -3 -m pytest : offline suites (pipeline helpers, fake-SwarmUI end-to-end run on a synthetic
   template, request payload names, settings, XML, server guard).
-- tools/bench.py runs a full job from the command line for backend comparisons.
-- Not yet verified live in game by the author: hot reload of a generated folder and the exact
-  <magictype> numbering (single manual tests; see STATE.md).
+- tools/bench.py runs a full job from the command line; tools/tune.py reruns the settings sweeps.
+- Not yet verified live in game by the author: hot reload of a generated folder, the exact <magictype>
+  numbering and the in-game scale of each piece (single manual tests; see the README status note).

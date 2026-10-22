@@ -1,5 +1,5 @@
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# only the two real suites; tests/test_*.py files are manual probes that call SwarmUI
+# the three offline suites; nothing here needs SwarmUI, a GPU or the game
 python_files = ["selftest.py", "test_pipeline.py", "test_server_guard.py"]
 addopts = "-q"
