@@ -119,6 +119,29 @@ def test_wait_ready_restarts_an_errored_backend_once():
     assert calls.count("/API/RestartBackends") == 1
 
 
+def test_a_timed_out_render_interrupts_swarmui_before_the_retry():
+    import engine
+
+    calls = []
+
+    def fake(path, body, timeout=30):
+        calls.append(path)
+        if path == "/API/GenerateText2Image":
+            raise TimeoutError("timed out")
+        return {"success": True}
+
+    c = engine.SwarmClient(url="http://127.0.0.1:1")
+    c.session = lambda: "s"
+    c._post = fake
+    try:
+        c.render("p", 64, 64, "m", 4, 1.0, 1)
+    except TimeoutError:
+        pass
+    else:
+        raise AssertionError("the timeout must still surface so the piece is retried")
+    assert calls[-1] == "/API/InterruptAll", calls
+
+
 def test_export_writes_painting_and_xml():
     import engine
     from test_pipeline import FakeJob

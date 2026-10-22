@@ -117,6 +117,66 @@ def test_xform_squashes_and_rotates():
     assert turned.height > turned.width * 0.9, "90 degrees must swap the long axis"
 
 
+def test_head_slots_follow_the_template_and_chain_from_the_front_head():
+    """Measured on real Workshop atlases: 1-3 almost frontal turning right, 4 profile right, 5 front, 6 bowed, 7 back."""
+    spec = {p: pipeline.SPECS[p][2] for p in ("helm", "helm2", "helm3", "helm4", "helm5", "helm.A", "helm.B")}
+    deg = [int(spec[p].split("about ")[1].split(" ")[0]) for p in ("helm", "helm2", "helm3")]
+    assert deg == sorted(deg) and deg[0] < 20 and deg[2] <= 40, deg
+    assert all("right" in spec[p] for p in ("helm", "helm2", "helm3", "helm4")) and "left" not in " ".join(spec.values())
+    assert "profile" in spec["helm4"] and "front" in spec["helm5"] and "forward and down" in spec["helm.A"] and "behind" in spec["helm.B"]
+    first = pipeline.ORDER.index("helm5")
+    assert all(pipeline.ORDER.index(p) > first for p in pipeline.USES_FRONT)
+    assert pipeline.ORDER.index("helm4") < pipeline.ORDER.index("helm"), "the profile defines the turn range"
+
+
+def _head(width, h=240, w=240):
+    im = Image.new("RGB", (w, h), "white")
+    ImageDraw.Draw(im).ellipse(((w - width) // 2, 20, (w + width) // 2, h - 20), fill=(200, 40, 40), outline=(0, 0, 0), width=4)
+    return pipeline.clean(pipeline.cut_out(im))
+
+
+def test_turn_choice_is_graded_between_front_and_profile():
+    front, profile = _head(200), _head(110)            # a profile is narrower than the front head
+    cands = [(_head(w), w) for w in (200, 185, 165, 145, 125)]
+    picks = {k: pipeline.choose_turn(cands, front, profile, t)[1] for k, t in pipeline.TURN_TARGET.items()}
+    assert picks["helm"] > picks["helm2"] > picks["helm3"], picks     # more turned = narrower here
+    assert picks["helm"] >= 165 and picks["helm3"] <= 185, "slot 1 stays near the front"
+
+
+def test_heads_are_scaled_to_the_same_area_whatever_their_shape():
+    wide, narrow = _head(220), _head(120)
+    area = pipeline.alpha_area(pipeline.fit(wide, "helm5"))
+    for sprite in (wide, narrow):
+        got = pipeline.alpha_area(pipeline.fit(sprite, "helm2", area))
+        assert abs(got - area) / area < 0.12, (got, area)
+
+
+def test_fourth_giant_lies_on_its_back_from_the_side_view():
+    """Rotating the FRONT view would put the emblem sideways; the side view turned 90 degrees puts the chest up."""
+    src, sx, sy, ang = pipeline.XFORMS["bigbod4"]
+    assert src == "bigbod3" and ang == 90 and "side profile" in pipeline.SPECS["bigbod3"][2]
+    sprite = pipeline.cut_out(_blob((300, 300), box=(80, 20, 220, 280)))      # tall upright torso
+    lying = pipeline.xform(sprite, sx, sy, ang)
+    assert lying.width > lying.height * 1.4, "a lying giant is a wide, low loaf"
+
+
+def test_bowed_head_must_keep_the_characters_colours():
+    assert pipeline.GATES["helm.A"][:2] == ("front", 0.55)
+    front = _blob(color=(220, 180, 90))
+    bald = _blob(color=(200, 40, 40))                      # a different character came back
+    assert pipeline.check(pipeline.cut_out(bald), bald, front, 0.55) == "colours differ from the reference"
+    assert pipeline.check(pipeline.cut_out(front), front, front, 0.55) == ""
+
+
+def test_a_head_that_came_back_with_a_body_is_rejected():
+    tall = Image.new("RGB", (240, 400), "white")
+    d = ImageDraw.Draw(tall)
+    d.ellipse((50, 10, 190, 150), fill=(220, 180, 90), outline=(0, 0, 0), width=4)       # the head
+    d.rectangle((90, 150, 150, 390), fill=(30, 60, 160), outline=(0, 0, 0), width=4)     # body and legs
+    assert pipeline.check(pipeline.cut_out(tall), max_aspect=pipeline.HEAD_ASPECT) == "too tall for this piece"
+    assert pipeline.check(_head(150), max_aspect=pipeline.HEAD_ASPECT) == ""
+
+
 def test_cover_fills_the_box():
     out = pipeline.cover(Image.new("RGB", (300, 600), (10, 20, 30)), (130, 130))
     assert out.size == (130, 130) and np.asarray(out)[..., 3].min() == 255
@@ -183,7 +243,7 @@ def test_full_run_with_fake_backend_paints_every_box_and_keeps_limbs():
             ("er_sde", "simple", 4.0, 40), "the tuned Anima settings must apply when the job sets none"
         assert {c["steps"] for c in calls[1:]} == {pipeline.EDIT_STEPS}
         assert {c["model"] for c in calls[1:]} == {pipeline.EDIT_MODELS["klein"]}, "pieces must use the edit model"
-        assert {c["images"] for c in calls[1:]} == {1, 2}      # master, plus master+torso for bodies/giants
+        assert {c["images"] for c in calls[1:]} == {1, 2}      # master; +torso for bodies/giants, +front head for angles
         assert (Path(d) / "master.png").exists()
 
 

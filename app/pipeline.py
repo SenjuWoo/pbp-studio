@@ -36,7 +36,10 @@ MASTER_NEG = ("worst quality, low quality, score_1, score_2, score_3, artist nam
               "chromatic aberration, " + NEG)
 
 EDIT_MODELS = {"klein": "flux-2-klein-4b-fp8", "qwen": "qwen_image_2.1_turbo_int8_convrot"}
-RENDER_TIMEOUT = 240   # seconds; a Klein piece takes ~7 s, so a longer wait is a stalled SwarmUI
+# seconds per render: a Klein piece takes ~7-10 s, so a longer wait is a stalled SwarmUI (seen ~1 run in 3, always
+# cleared by an interrupt + retry). The first call of a job also loads the model, so it gets FIRST_CALL_TIMEOUT.
+RENDER_TIMEOUT = {"klein": 90, "qwen": 240, "anima": 120}
+FIRST_CALL_TIMEOUT = 300
 EDIT_STEPS = 6   # Klein sweep: same gate pass as 8, best colour fidelity, 30% faster (docs/TUNING.md)
 ANIMA_MODEL = "woomixAnima_v15"
 ANIMA_SAMPLER, ANIMA_SCHEDULER = "er_sde", "simple"   # tuned: docs/TUNING.md
@@ -51,18 +54,22 @@ _HEAD = "the head only (no neck below the chin, no body)"
 _TORSO = ("the torso garment only: the armor / clothing from the shoulders to the waist, as a separate piece, "
           "with no head, no neck, no arms, no hands, no legs, no cape and no weapon")
 _GIANT = ("hugely enlarged into an enormous round muscular bulky torso, a big rounded blob of clothing, the "
-          "arms cut off at the shoulders as short round stumps, no hands, no fists, no head, no legs")
+          "arms cut off at the shoulders as short round stumps, no hands, no fists, no head, no legs, no feet")
 
 # part -> (kind, what, pose, canvas (w, h)).
 #   edit  = generate from the master, cut out;  ref = generated first, not placed (identity bridge);
 #   ui    = full-bleed art;  xform = derived from another piece by squash / rotate (see XFORMS).
 SPECS = {
-    "helm":   ("edit", _HEAD, "turned in three-quarter view, face turned to the left", (1024, 1024)),
-    "helm2":  ("edit", _HEAD, "turned slightly to the left, almost facing the viewer", (1024, 1024)),
-    "helm3":  ("edit", _HEAD, "turned in three-quarter view, face turned to the right", (1024, 1024)),
+    # slots 1-3 face almost the viewer with a growing turn to the viewer's right, 4 is a right profile, 5 is
+    # straight on, 6 is bowed forward, 7 is the back (measured on 10 real Workshop characters, docs/TUNING.md)
+    "helm":   ("edit", _HEAD, "turned about 15 degrees to the right, almost facing the viewer", (1024, 1024)),
+    "helm2":  ("edit", _HEAD, "turned about 25 degrees to the right, still almost facing the viewer", (1024, 1024)),
+    "helm3":  ("edit", _HEAD, "turned about 40 degrees to the right, a mild three-quarter view", (1024, 1024)),
     "helm4":  ("edit", _HEAD, "in full side profile, facing right", (1024, 1024)),
     "helm5":  ("edit", _HEAD, "facing straight at the viewer, front view", (1024, 1024)),
-    "helm.A": ("edit", _HEAD, "tilted back and up, eyes squeezed shut, flinching in pain", (1024, 1024)),
+    # "bowed ... seen from above" made Klein draw bald heads for taco, cat and robot; a plain 30 degree tilt keeps them
+    "helm.A": ("edit", _HEAD, "tilted forward and down about 30 degrees as if hurt, eyes squeezed shut, every hair, ear, "
+                              "hat, helmet, shell and accessory exactly as in image 2, nothing removed", (1024, 1024)),
     "helm.B": ("edit", _HEAD, "seen from directly behind: the back of the same head (or helmet), no face visible",
                (1024, 1024)),
     "bodyref":      ("ref", _TORSO, "front view", (768, 768)),
@@ -79,7 +86,8 @@ SPECS = {
     "bigbod1":    ("edit", _GIANT, "upright, front view", (1024, 1024)),
     "bigbod2":    ("edit", _GIANT, "upright, three-quarter view facing right", (1024, 1024)),
     "bigbodback": ("edit", _GIANT, "upright, seen from behind", (1024, 1024)),
-    "bigbod3":    ("xform", _GIANT, "leaning forward", (1024, 1024)),
+    "bigbod3":    ("edit", _GIANT, "seen in a full side profile facing right, the chest bulging toward the right",
+                    (1024, 1024)),
     "bigbod4":    ("xform", _GIANT, "lying on its back", (1024, 1024)),
     "bigbod911":  ("xform", _GIANT, "falling diagonally", (1024, 1024)),
     "hudicon":      ("ui", "a square close-up portrait icon: head and shoulders, facing the viewer, bold simple "
@@ -92,18 +100,31 @@ SPECS = {
 }
 # part -> (source part, scale x, scale y, rotation in degrees counter-clockwise)
 XFORMS = {"pbodland": ("pbod1", 1.12, 0.8, 0), "knightbodrun": ("pbod1", 1, 1, -14),
-          "pbodspin": ("pbod1", 1, 1, 38), "bigbod3": ("bigbod2", 1, 0.94, -14),
-          "bigbod4": ("bigbod1", 1, 1.45, 80), "bigbod911": ("bigbod1", 1, 1, 45), "shield2": ("shield1", 0.28, 1, 0)}
-USES_BODYREF = {"pbod1", "pbodback", "bigbod1", "bigbod2", "bigbodback"}
+          "pbodspin": ("pbod1", 1, 1, 38),
+          # the template's 4th giant lies on its BACK (chest up, collar left, flat underside): the side view of the
+          # standing giant turned 90 degrees counter-clockwise, flattened and stretched into a wide loaf
+          "bigbod4": ("bigbod3", 0.8, 1.3, 90),
+          "bigbod911": ("bigbod1", 1, 1, 45), "shield2": ("shield1", 0.28, 1, 0)}
+USES_BODYREF = {"pbod1", "pbodback", "bigbod1", "bigbod2", "bigbod3", "bigbodback"}
+# heads are redrawn from the front head (helm5) as well as the master: identical face, graded turn
+USES_FRONT = {"helm", "helm2", "helm3", "helm4", "helm.A", "helm.B"}
+# graded slots: how far between the character's own front head (0) and right profile (1) each should turn.
+# Klein's turn varies a lot per seed ("15 degrees" came out anywhere from 5 to 40), so several candidates are
+# drawn and the one whose silhouette difference from the front head is closest to the target is kept.
+TURN_TARGET = {"helm": 0.22, "helm2": 0.36, "helm3": 0.55}
+TURN_CANDIDATES = 3
 # part -> (reference piece, min colour similarity to it, max height/width): torsos must keep the clothing
 # colours and must not come back as a tiny full-body figure (measured: good 0.81-0.99, wrong colours 0.57-0.62)
 GATES = {"bodyref": ("master", 0.55, 1.4)}   # torso lacks hair/skin colours: good ones measured 0.62-0.91
 GATES.update({k: ("bodyref", 0.70, 1.4) for k in USES_BODYREF})
 GATES.update({k: ("bodyref", 0.50, 1.4) for k in ("pbodback", "bigbodback")})   # the back lacks the front emblem
-ORDER = ["helm5", "helm3", "helm", "helm2", "helm4", "helm.A", "helm.B",
+HEAD_ASPECT = 1.55   # a head taller than this came back with a body, legs or a sword (taco profile, measured)
+GATES.update({k: (None, 0.0, HEAD_ASPECT) for k in USES_FRONT | {"helm5"}})
+GATES["helm.A"] = ("front", 0.55, HEAD_ASPECT)   # measured: bald-head failures 0.32-0.55, good ones 0.65-0.96
+ORDER = ["helm5", "helm4", "helm", "helm2", "helm3", "helm.A", "helm.B",
          "bodyref", "pbod1", "pbodback", "pbodland", "knightbodrun", "pbodspin",
          "sword", "shield1", "shield2",
-         "bigbod1", "bigbod2", "bigbodback", "bigbod3", "bigbod4", "bigbod911",
+         "bigbod1", "bigbod2", "bigbod3", "bigbodback", "bigbod4", "bigbod911",
          "hudicon", "selectbanner", "backoffb"]
 BY_PART = {r["part"]: r for r in REGIONS}
 ANCHOR_BOTTOM = {"head", "body", "body_big", "bob"}
@@ -118,6 +139,11 @@ def edit_prompt(part):
         return ("Cut out ONLY the torso clothing of this exact character, front view: the armor, tabard and belt "
                 "from the shoulders to the waist, as a separate piece. Remove the head, neck, hair, arms, hands, "
                 "legs, cape and weapon completely. Keep the exact colors and emblem of the clothing. "
+                f"{STYLE}, one single object, centered.")
+    if part in USES_FRONT:
+        return ("Image 1 is a character, image 2 is the same character's head facing the viewer. "
+                f"Redraw only the head from image 2 (nothing but the head: no body, no legs, no feet, no weapon), {pose}. "
+                "Keep every design detail and every color identical. "
                 f"{STYLE}, one single object, centered.")
     if part in USES_BODYREF:
         if what == _GIANT:
@@ -206,6 +232,11 @@ def palette_sim(a, b):
     return float(np.sqrt(palette(a) * palette(b)).sum())
 
 
+def _aspect(sprite):
+    bb = sprite.getchannel("A").point(lambda v: 255 if v > 40 else 0).getbbox()
+    return (bb[3] - bb[1]) / max(1, bb[2] - bb[0]) if bb else 0.0
+
+
 def check(sprite, raw=None, ref=None, min_sim=0.0, max_aspect=0.0):
     """Return '' when the piece is usable, else why not (blank / filled canvas / figures / wrong colours / shape)."""
     cov = (np.asarray(sprite.getchannel("A")) > 40).mean()
@@ -227,8 +258,38 @@ def check(sprite, raw=None, ref=None, min_sim=0.0, max_aspect=0.0):
     return ""
 
 
-def fit(sprite, part):
-    """Trim the sprite and place it in its box at the median size/position of real workshop art."""
+def _mask(sprite, h=160):
+    """Alpha silhouette scaled to a fixed height and centred on a fixed canvas, for shape comparison."""
+    bb = sprite.getchannel("A").point(lambda v: 255 if v > 40 else 0).getbbox()
+    m = sprite.crop(bb).getchannel("A").point(lambda v: 255 if v > 40 else 0)
+    m = m.resize((max(1, round(m.width * h / m.height)), h))
+    out = Image.new("L", (400, h), 0)
+    out.paste(m, ((400 - m.width) // 2, 0))
+    return np.asarray(out) > 0
+
+
+def turn_score(a, b):
+    """0 = same silhouette, 1 = nothing in common: how far head `a` is turned away from head `b`."""
+    ma, mb = _mask(a), _mask(b)
+    return 1.0 - float((ma & mb).sum() / max(1, (ma | mb).sum()))
+
+
+def choose_turn(cands, front, profile, target):
+    """cands = [(sprite, raw)]; keep the one whose turn, as a share of the front-to-profile span, is closest."""
+    span = max(turn_score(profile, front), 1e-3)
+    return min(cands, key=lambda c: abs(turn_score(c[0], front) / span - target))
+
+
+def alpha_area(img):
+    return int((np.asarray(img.getchannel("A")) > 40).sum())
+
+
+def fit(sprite, part, area=0):
+    """Trim the sprite and place it in its box at the median size/position of real workshop art.
+
+    area > 0 (heads): scale every head to the same pixel area as the front head, so a ponytail or an
+    open-mouthed profile does not shrink the head and the 7 slots line up with the body below.
+    """
     x, y, w, h = BY_PART[part]["rect"]
     role = BY_PART[part]["role"]
     canvas = Image.new("RGBA", (w, h), (0, 0, 0, 0))
@@ -239,6 +300,8 @@ def fit(sprite, part):
     x0, y0, x1, y1 = LAYOUT[part]
     tw, th = max(8, (x1 - x0) * w), max(8, (y1 - y0) * h)
     s = min(tw / sprite.width, th / sprite.height)
+    if area:
+        s = min((area / max(1, alpha_area(sprite))) ** 0.5, 0.95 * w / sprite.width, 0.95 * h / sprite.height)
     new = resize_rgba(sprite, (max(1, round(sprite.width * s)), max(1, round(sprite.height * s))))
     px = round((x0 + x1) / 2 * w - new.width / 2)
     py = round(y1 * h - new.height) if role in ANCHOR_BOTTOM else round((y0 + y1) / 2 * h - new.height / 2)
@@ -267,6 +330,25 @@ def anima_guide(template, part):
 
 
 # ---------------------------------------------------------------- the runner
+def _turn_slot(sw, job, part, model, made, sprites, master, seed, timeout):
+    """Draw TURN_CANDIDATES heads for a graded slot and keep the one turned closest to its target."""
+    cands = []
+    for k in range(TURN_CANDIDATES):
+        try:
+            img = sw.render(edit_prompt(part), 1024, 1024, model, EDIT_STEPS, 1.0, (seed + 31 * k) % (2**31 - 1) or 1,
+                            images=[master, made["helm5"]], timeout=timeout)
+        except Exception as e:
+            job.say(f"    {part}: backend error: {str(e)[:120]}")
+            continue
+        cut = clean(cut_out(img))
+        if not check(cut, max_aspect=HEAD_ASPECT):
+            cands.append((cut, img))
+    if not cands:
+        raise RuntimeError(f"{part}: no usable head from {TURN_CANDIDATES} tries")
+    if "helm4" in sprites:
+        return choose_turn(cands, sprites["helm5"], sprites["helm4"], TURN_TARGET[part])
+    return cands[0]
+
 def run(engine, job, base, p, design, seed, backend):
     """Generate every non-limb piece; returns (canvas, [(part, piece)]). `base` is the template RGBA."""
     sw = engine.swarm
@@ -291,7 +373,7 @@ def run(engine, job, base, p, design, seed, backend):
     else:
         job.say("Designing the character (Anima)...")
         master = sw.render(master_prompt(design), 1024, 1024, ANIMA_MODEL, steps, cfg, seed, MASTER_NEG,
-                           sampler=sampler, scheduler=sched).convert("RGB")
+                           sampler=sampler, scheduler=sched, timeout=FIRST_CALL_TIMEOUT).convert("RGB")
     master.save(job.job_dir / "master.png")
     job.result = {"preview": str(job.job_dir / "master.png"), "master": str(job.job_dir / "master.png")}
 
@@ -300,16 +382,30 @@ def run(engine, job, base, p, design, seed, backend):
         raise RuntimeError(f"Model '{model}' is not installed in SwarmUI. Get it from {DOWNLOADS[backend]}, "
                            f"or pick another backend.")
     made, sprites, cells = {}, {}, []       # raw generations (references), cut-out sprites, placed pieces
+    head_area = 0                           # pixel area of the placed front head: the size every head is scaled to
     job.total = len(ORDER)
     for i, part in enumerate(ORDER, 1):
         if job.cancel.is_set():
             raise Cancelled()
         kind, _, _, (gw, gh) = SPECS[part]
         job.phase, job.current = "generating", part
+        timeout = FIRST_CALL_TIMEOUT if not made else RENDER_TIMEOUT[backend]
         if kind == "ref" and backend == "anima":
             job.done = i
             continue
         why = ""
+        if part in TURN_TARGET and backend != "anima":
+            sprite, raw = _turn_slot(sw, job, part, model, made, sprites, master, seed + 13 * i, timeout)
+            made[part], sprites[part] = raw, sprite
+            piece = fit(sprite, part, head_area)
+            x, y, w, h = BY_PART[part]["rect"]
+            canvas.alpha_composite(piece, (x, y))
+            cells.append((part, piece))
+            job.done = i
+            canvas.resize((1024, 1024), Image.LANCZOS).save(job.job_dir / "live_preview.png")
+            job.result = {"preview": str(job.job_dir / "live_preview.png"), "master": str(job.job_dir / "master.png")}
+            job.say(f"[{i}/{len(ORDER)}] {part} ok (turn picked from {TURN_CANDIDATES})")
+            continue
         if kind == "xform" and backend != "anima":
             src_part, sx, sy, ang = XFORMS[part]
             sprite = xform(sprites[src_part], sx, sy, ang)
@@ -323,11 +419,12 @@ def run(engine, job, base, p, design, seed, backend):
                         img = sw.render(anima_prompt(design, part), gw, gh, ANIMA_MODEL, steps, cfg, s, NEG,
                                         controlnet=guide,
                                         controlnet_strength=float(p.get("controlnet_strength", 1.0)),
-                                        sampler=sampler, scheduler=sched, timeout=RENDER_TIMEOUT)
+                                        sampler=sampler, scheduler=sched, timeout=timeout)
                     else:
-                        refs = [master] + ([made["bodyref"]] if part in USES_BODYREF and "bodyref" in made else [])
+                        refs = [master] + ([made["bodyref"]] if part in USES_BODYREF and "bodyref" in made else []) \
+                            + ([made["helm5"]] if part in USES_FRONT and "helm5" in made else [])
                         img = sw.render(edit_prompt(part), gw, gh, model, EDIT_STEPS, 1.0, s, images=refs,
-                                        timeout=RENDER_TIMEOUT)
+                                        timeout=timeout)
                 except Exception as e:
                     why = f"backend error: {str(e)[:160]}"
                     job.say(f"    {part}: {why}")
@@ -337,7 +434,8 @@ def run(engine, job, base, p, design, seed, backend):
                     break
                 cut = clean(cut_out(img))
                 gate = GATES.get(part)
-                ref_img = {"master": master, "bodyref": made.get("bodyref")}.get(gate[0]) if gate else None
+                ref_img = {"master": master, "bodyref": made.get("bodyref"), "front": made.get("helm5")}.get(
+                    gate[0]) if gate else None
                 why = check(cut, img, ref_img, gate[1] if gate else 0.0, gate[2] if gate else 0.0)
                 if not why:
                     sprite, raw = cut, img
@@ -345,7 +443,7 @@ def run(engine, job, base, p, design, seed, backend):
                 job.say(f"    {part}: attempt {attempt + 1} rejected ({why})")
                 (job.job_dir / "raw").mkdir(exist_ok=True)
                 img.save(job.job_dir / "raw" / f"{part}_rejected{attempt + 1}.png")
-                score = palette_sim(img, ref_img) if ref_img is not None else 0.0
+                score = palette_sim(img, ref_img) if ref_img is not None else -_aspect(cut)
                 if best is None or score > best[0]:
                     best = (score, cut, img)
             if sprite is None and best:             # every attempt failed the gate: keep the closest to the reference
@@ -359,7 +457,9 @@ def run(engine, job, base, p, design, seed, backend):
             job.say(f"[{i}/{len(ORDER)}] {part} (reference, not placed)")
             continue
         x, y, w, h = BY_PART[part]["rect"]
-        piece = sprite if kind == "ui" else fit(sprite, part)
+        piece = sprite if kind == "ui" else fit(sprite, part, head_area if part in USES_FRONT else 0)
+        if part == "helm5":
+            head_area = alpha_area(piece)
         canvas.alpha_composite(piece, (x, y))
         cells.append((part, piece))
         canvas.resize((1024, 1024), Image.LANCZOS).save(job.job_dir / "live_preview.png")

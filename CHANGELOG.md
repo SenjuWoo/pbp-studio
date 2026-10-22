@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.9.1 - poses follow the template
+Audited every box against the template wireframes and ten real Workshop characters.
+- **Heads:** slots 1-3 now face almost the viewer with a growing turn to the viewer's right (they faced left before),
+  slot 6 is tilted forward and down (it was tilted back), and every angle is drawn from the master *and* the front head,
+  so the face stays identical and the turns are graded instead of over-turned.
+- **Giants:** the 3rd is a real side-profile piece; the 4th lies **on its back** (chest up, collar left, flat underside,
+  wide loaf like the template) by turning that side view 90 degrees, instead of rotating the front view onto its side.
+  Giants get "no feet".
+- **Graded turns are measured, not hoped for.** Klein's "15 degrees" came out anywhere from 5 to 40, so slots 1-3 draw
+  three candidates each and keep the one whose silhouette difference from the character's own front and profile heads
+  is closest to the target (22 % / 36 % / 55 % of the way to the profile).
+- **All seven heads are scaled to the same pixel area** as the front head. Before, a ponytail or a profile shrank the
+  head (fitted by bounding box) and it no longer lined up with the body below.
+- Head prompts say again "nothing but the head: no body, no legs, no feet, no weapon" (the front-head form had lost it, and
+  the taco's profile came back with boots and a sword); a head taller than 1.55 x its width is rejected.
+- Slot 6 is a plain 30 degree forward tilt with eyes shut and every feature kept: "bowed, seen from above" turned the taco,
+  cat and robot into bald heads, so it is also gated on colour similarity to the front head (0.55).
+- **Stalled SwarmUI calls recover in about 90 s, not 4 minutes:** per-backend render timeouts (Klein 90 s, Qwen 240 s,
+  Anima 120 s, 300 s for the first call that loads the model), and a timed-out call now sends `InterruptAll` before the
+  retry (a hung render had cost one run 11 minutes and another two 4-minute timeouts).
+- New tests pin the head-slot order, the turn choice, same-size heads, the head aspect gate, the lying giant and the
+  interrupt on timeout; `docs/TUNING.md` section 7 has the evidence.
+
 ## 0.9.0 - settings tuned by measurement
 Every default now comes from a reproducible sweep (`tools/tune.py`, results in `docs/TUNING.md`): 12 sampler x
 scheduler combos, CFG x steps, three prompt formats and Klein steps x canvas, on four different test characters.

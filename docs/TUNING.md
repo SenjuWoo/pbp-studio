@@ -95,6 +95,42 @@ of those; when all three tries fail the closest one is kept).
 One run stalled for 11 minutes inside SwarmUI (a single render call that never returned); render calls now time out
 after 4 minutes and the piece is retried with a new seed.
 
+## 7. Pose conformance to the template (0.9.1)
+The pose of every box was audited against the template's wireframes and against ten real Workshop characters
+(KATE, NARUTO, SMASH GIRL, SQUIRREL GIRL, WAIFU KNIGHT, HEYLEE, SASUKO, LUCOA, VANA, MARISSA). The 0.8/0.9.0 angle text
+had come from old project notes and was wrong:
+
+| slot | real characters | was | now |
+|---|---|---|---|
+| heads 1-3 | almost frontal, a growing turn to the viewer's **right** | 1-2 facing left, 3 right | about 15 / 25 / 40 degrees right |
+| head 4 | full right profile | right profile | right profile |
+| head 5 | straight on | straight on | straight on |
+| head 6 | head **bowed** forward and down | tilted back and up | tilted forward and down about 30 degrees, eyes shut, features kept |
+| head 7 | back of the head | back | back, features kept (ponytail, ribbon, helmet) |
+| giant 3 | side view leaning right | front view tilted 14 degrees | real side-profile piece |
+| giant 4 | torso lying **on its back**, chest up, collar left | front view rotated 80 degrees (on its side) | side view of giant 3 turned 90 degrees, flattened and stretched into a wide loaf |
+
+Head angle test (4 designs x 6 angles, with and without the front head as a second reference): the master alone
+over-turns the early slots (the robot already faces 45 degrees in slot 1) and the face drifts between slots (the taco
+loses its face, then grows a human one); adding the front head (`helm5`, drawn first) as image 2 keeps one face
+and makes the 15 / 25 / 40 degree turns graded. Klein under-turns, so 10 degrees asked for came out near zero;
+15 / 25 / 40 was asked to get roughly 5 / 15 / 25 degrees of real turn. Slot 6 was tested in six wordings on four designs.
+"Bowed deeply forward, seen from above" looked best on the knight but made the taco, cat and robot into bald heads
+(colour similarity to the front head 0.32-0.55); "tilted forward and down about 30 degrees as if hurt ... every hair, ear,
+hat, helmet, shell and accessory exactly as in image 2" kept the character in all 12 renders (0.65-0.96), so that is the
+wording, with a colour gate of 0.55 against the front head. The same sweep showed the back view is fine as it is
+(the robot's red back is its cape).
+
+The turn of the graded slots is chosen by measurement: `turn_score` is 1 - IoU of the two silhouettes (both scaled
+to the same height and centred), expressed as a share of the front-to-profile span of the same character; slots 1-3
+aim at 0.22 / 0.36 / 0.55 and keep the closest of three candidates. Every head is scaled to the pixel area of the
+front head so the seven slots have the same head size above the body.
+
+Stalls: in the full runs of this tuning, two renders never returned (the taco's `bodyref` and `pbod1`, both 768 px, each
+cost the 240 s timeout) and one earlier run lost 11 minutes to a single call. The retry after each stall finished in
+seconds, so the timeout is now 90 s for Klein and the hung call is interrupted. A cold start (launching SwarmUI and
+loading Anima, then Klein) adds several more minutes to a first run.
+
 ## Final defaults
 | setting | 0.8.0 | 0.9.0 |
 |---|---|---|

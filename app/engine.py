@@ -24,7 +24,7 @@ from regions import REGIONS, TEMPLATE_SIZE
 from magics import magic_number
 
 APP_NAME = "PBP-Studio"
-APP_VERSION = "0.9.0"
+APP_VERSION = "0.9.1"
 APP_DATA = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / APP_NAME
 SETTINGS_FILE = APP_DATA / "settings.json"
 TEMPLATE_CACHE = APP_DATA / "template" / "painting.png"
@@ -292,9 +292,21 @@ class SwarmClient:
         # bare names: a model in a sub-folder is listed as "Anima/woomixAnima_v15.safetensors"
         return [f["name"].replace("\\", "/").rsplit("/", 1)[-1].rsplit(".", 1)[0] for f in r.get("files", [])]
 
+    def interrupt(self):
+        """Best effort: stop whatever SwarmUI is still generating so a retry does not queue behind a hung call."""
+        try:
+            self._post("/API/InterruptAll", {"session_id": self.session(), "other_sessions": True}, timeout=15)
+        except Exception:
+            pass
+
     def _run(self, body, timeout):
         t_req = time.time()
-        res = self._post("/API/GenerateText2Image", body, timeout=timeout)
+        try:
+            res = self._post("/API/GenerateText2Image", body, timeout=timeout)
+        except Exception as e:
+            if "timed out" in str(e):
+                self.interrupt()
+            raise
         if res.get("error"):
             raise RuntimeError(str(res["error"])[:300])
         imgs = res.get("images") or []
