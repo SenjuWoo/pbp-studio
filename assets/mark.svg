@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="PBP Studio">
+  <rect width="64" height="64" rx="14" fill="#B4552F"/>
+  <path d="M32 11l17 6.4v14.2c0 10.4-7 17.6-17 21.4-10-3.8-17-11-17-21.4V17.4z" fill="none" stroke="#0E1214" stroke-width="3" stroke-linejoin="round"/><path d="M25 26h14M32 26v14" stroke="#0E1214" stroke-width="3" stroke-linecap="round"/>
+</svg>

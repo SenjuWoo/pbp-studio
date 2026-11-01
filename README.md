@@ -1,6 +1,18 @@
+<p align="center">
+  <img src="assets/mark.svg" width="72" height="72" alt="PBP Studio">
+</p>
+
+<div align="center">
+
 # PBP Studio
 
-[![CI](https://github.com/SenjuWoo/pbp-studio/actions/workflows/ci.yml/badge.svg)](https://github.com/SenjuWoo/pbp-studio/actions/workflows/ci.yml)
+<p>
+  <a href="https://github.com/SenjuWoo/pbp-studio/actions/workflows/ci.yml"><img src="https://github.com/SenjuWoo/pbp-studio/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/SenjuWoo/pbp-studio/releases/latest"><img src="https://img.shields.io/github/v/release/SenjuWoo/pbp-studio?label=release&color=B4552F&labelColor=0d1117" alt="latest release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-B4552F?labelColor=0d1117" alt="MIT License"></a>
+</p>
+
+</div>
 
 Turn a text idea into a **Castle Crashers custom character** for the *Painter Boss Paradise* DLC -
 local, no account, no upload.
