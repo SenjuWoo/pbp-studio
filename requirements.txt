@@ -2,4 +2,4 @@
 # Pillow: image I/O and resizing. numpy + scipy: cut-out, quality gates, layout fitting.
 pillow>=13.0.0
 numpy>=1.24
-scipy>=1.10
+scipy>=1.18.1
