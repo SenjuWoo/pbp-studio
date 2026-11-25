@@ -6,6 +6,8 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # Raise a floor only when the new release is outside the range; keeps older Pythons installable.
+    versioning-strategy: increase-if-necessary
 
   - package-ecosystem: github-actions
     directory: /
