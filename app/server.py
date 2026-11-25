@@ -64,8 +64,11 @@ def contained(p, roots):
     full = os.path.realpath(str(p))
     for root in roots:
         base = os.path.realpath(str(root))
-        if full == base or full.startswith(base.rstrip("\\/") + os.sep):
-            return full
+        if full.startswith(base):
+            # a real folder boundary: C:\out must not admit C:\outside
+            rest = full[len(base):]
+            if not rest or rest[0] in "\\/" or base.endswith(("\\", "/")):
+                return full
     return None
 
 
