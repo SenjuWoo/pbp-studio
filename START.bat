@@ -32,7 +32,7 @@ goto :eof
 
 :nopython
 echo.
-echo Python 3.10+ was not found.
+echo Python 3.11+ was not found.
 echo Install it from https://www.python.org/downloads/ (tick "Add python.exe to PATH") and run this file again.
 pause
 exit /b 1

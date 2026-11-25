@@ -1,49 +1,56 @@
-<p align="center">
-  <img src="assets/mark.svg" width="72" height="72" alt="PBP Studio">
-</p>
-
 <div align="center">
 
-# PBP Studio
+![PBP Studio: an orange shield mark next to the tagline 'One sentence in, a Castle Crashers custom character out: every template box redrawn from one design, locally', with the chips 39 boxes, 26 magics, local SwarmUI and no upload](docs/presentation/hero.png)
 
-<p>
-  <a href="https://github.com/SenjuWoo/pbp-studio/actions/workflows/ci.yml"><img src="https://github.com/SenjuWoo/pbp-studio/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-B4552F?labelColor=0d1117" alt="MIT License"></a>
-  <a href="https://github.com/SenjuWoo/pbp-studio/releases/latest"><img src="https://img.shields.io/github/v/release/SenjuWoo/pbp-studio?label=release&color=B4552F&labelColor=0d1117" alt="latest release"></a>
-</p>
+[![CI](https://github.com/SenjuWoo/pbp-studio/actions/workflows/ci.yml/badge.svg)](https://github.com/SenjuWoo/pbp-studio/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/SenjuWoo/pbp-studio?label=release&color=B4552F&labelColor=0d1117)](https://github.com/SenjuWoo/pbp-studio/releases/latest)
+[![Python](https://img.shields.io/badge/python-3.11%2B-57c84d?labelColor=0d1117)](requirements.txt)
+[![License: MIT](https://img.shields.io/badge/license-MIT-a06bd8?labelColor=0d1117)](LICENSE)
+
+**[Install](#install)** · **[Run](#run)** · **[Which model](#which-model)** · **[Commands](#commands)** · **[How it works](#how-it-works)** · **[Changelog](CHANGELOG.md)**
 
 </div>
 
-Turn a text idea into a **Castle Crashers custom character** for the *Painter Boss Paradise* DLC -
-local, no account, no upload.
-
-![Four generated characters: knight girl, robot knight, taco boy, cat knight](docs/images/four-characters.png)
-
-*Four characters generated from one sentence each (heads, bodies, weapon, shields and giants shown; the
-template's own artwork is not part of these images).*
-
-You type something like *"red-haired knight girl with a white ribbon, silver armor, blue tabard"*, pick a
-name and a magic, press **Generate character**, and the app:
-
-1. draws **one full-body master design** with a local anime model (or uses your own image),
-2. redraws every template piece from that master with an image-edit model, so hair, colours and trim are
-   the same in all **7 head angles, 5 bodies, 6 giant torsos, weapon, shields, portrait icon, select banner
-   and figurine**,
-3. cuts each piece out of its white background, rejects blank / multi-figure / wrong-colour results and
-   retries, and places it in its box at the size and position real Workshop characters use,
-4. writes `painting.png` + `pbp.xml` into a folder the in-game painter can load and hot-reload.
-
-The poses follow the template: head slots 1-3 face almost the viewer with a growing turn to the right, 4 is a
-right profile, 5 straight on, 6 a forward tilt, 7 the back; the 4th giant lies on its back. The 15
-beefy-form **limb boxes keep the template's own dark art** (what most Workshop characters do).
+PBP Studio turns a text idea into a **Castle Crashers custom character** for the *Painter Boss Paradise* DLC.
+You describe the character once. The app draws one master design, then redraws every box of the official
+template from it, so the hair, colours and trim match in all 7 head angles, 5 bodies, 6 giant torsos, the
+weapon, shields, portrait icon, select banner and figurine. It runs on your own machine with a local
+SwarmUI: no account, no upload.
 
 > **Status: beta.** Validated offline (tests), on four very different test characters, and against the layout
 > of 37 real Workshop atlases. It has not been checked in game by the author yet, so the first in-game load
 > is the real test - please report what you see.
 
-## Requirements
+## What you get
 
-- Windows 10/11, Python 3.10+ (the launcher creates a local `.venv`, nothing system-wide).
+- **One identity across 39 boxes.** A full-body master design comes first (from your text, or your own image),
+  and every piece is an edit of it, not a separate drawing.
+- **Poses that follow the template.** Head slots 1-3 face almost the viewer with a growing, measured turn to the
+  right, 4 is a right profile, 5 straight on, 6 a forward tilt, 7 the back; the 4th giant lies on its back. The
+  15 beefy-form **limb boxes keep the template's own dark art** (what most Workshop characters do).
+- **Pieces that fit.** Each piece is cut out of its white background, rejected and retried when it comes back
+  blank, multi-figure or the wrong colour, and placed at the size and position real Workshop characters use.
+- **Ready for the in-game painter.** It writes `painting.png` + `pbp.xml` into a folder the game loads and
+  hot-reloads, and can copy the result into the game's own `data/pbplocal`.
+- **Settings from measurement.** Sampler, CFG, steps, prompt format, Klein steps and head angles all come from
+  reproducible sweeps ([docs/TUNING.md](docs/TUNING.md)).
+- **Local only.** The server binds to `127.0.0.1` and answers only its own page; the only network use is the
+  optional one-time template download.
+
+![Four characters generated from one sentence each: a red-haired knight girl, a chrome robot knight, a taco-head boy and a cat knight, each shown as heads, bodies, weapon, shields and giants](docs/images/four-characters.png)
+
+*Four characters generated from one sentence each (heads, bodies, weapon, shields and giants shown; the
+template's own artwork is not part of these images).*
+
+![The PBP Studio page: step 1 describe your character with example prompts and the Flux.2 Klein 4B model picked, step 2 name and the 26 magics with Poison selected, step 3 the output folder and the Generate character button; the header shows AI backend ready and Template app cache](docs/presentation/screenshot-ui.png)
+
+*The real app page, captured headlessly from a running server (fresh profile, so the fields show their defaults).*
+
+## Install
+
+**Requirements**
+
+- Windows 10/11 and Python 3.11+ (the launcher creates a local `.venv`; nothing is installed system-wide).
 - Castle Crashers with the *Painter Boss Paradise* DLC, to load and publish the character.
 - [SwarmUI](https://github.com/mcmonkeyprojects/SwarmUI) (auto-detected, auto-started on port 7801) with:
   - an Anima model for the design step (developed with `woomixAnima_v15`), and
@@ -54,24 +61,14 @@ beefy-form **limb boxes keep the template's own dark art** (what most Workshop c
     (`qwen_image_2.1_turbo_int8_convrot.safetensors`, 7.3 GB, same folder).
 - A GPU that runs Flux.2 Klein 4B fp8 (about 8 GB VRAM per its docs; developed and measured on 16 GB).
 
-### Which model
+**Steps**
 
-Same design and seed, one full character, RTX 4080 SUPER 16 GB:
-
-| Model | Time | Gate retries | Result |
-|---|---|---|---|
-| **Flux.2 Klein 4B fp8** (default) | about 4-5 min | 0-14 | one identity everywhere, torso pieces keep the clothing |
-| Qwen Image 2.1 turbo int8 | 20 min 40 s | 18 | heads match, torso pieces come out as thin tabard strips |
-| Anima only | 10 min 45 s | 0 | off-model: knight busts as heads, full figures in body boxes |
-
-*Anima only* needs no download but cannot keep one identity across the pieces (each box is a separate
-drawing); treat it as a fallback. Every default (sampler, CFG, steps, prompt format, Klein steps, head angles)
-comes from a measured sweep: see [docs/TUNING.md](docs/TUNING.md).
+1. Download `PBP-Studio-<version>.zip` from the [latest release](https://github.com/SenjuWoo/pbp-studio/releases/latest)
+   and extract it anywhere (or `git clone https://github.com/SenjuWoo/pbp-studio`).
+2. Double-click `START.bat`. The first run installs Pillow, numpy and scipy into `.venv`.
+3. The UI opens at <http://127.0.0.1:8777/>. Set `PBP_PORT` to use another port.
 
 ## Run
-
-Double-click `START.bat` (first run installs Pillow/numpy/scipy into `.venv`). The UI opens at
-<http://127.0.0.1:8777/>.
 
 1. **Describe your character** - say what it looks like (head, outfit, colours). Optionally upload your own
    character image instead, or tick *Reuse the last design* to rebuild all pieces from the previous master
@@ -84,18 +81,36 @@ Double-click `START.bat` (first run installs Pillow/numpy/scipy into `.venv`). T
 
 `Install into game (pbplocal)` copies the finished folder into `CastleCrashers\data\pbplocal\<name>\`.
 
-Command line, no browser (repeatable runs, comparisons):
-
-```bash
-py -3 tools/bench.py klein --design "your text" [--master design.png] [--seed 5] [--out DIR]
-py -3 tools/tune.py master sampler      # the settings sweeps behind docs/TUNING.md
-```
-
 ### Output
 
 The whole painted atlas for one character (the template's artwork around the boxes is omitted here):
 
-![The painted boxes of one generated atlas](docs/images/example-knight-atlas.png)
+![The painted boxes of one generated atlas: seven head angles, bodies, giant torsos, weapon, shields and portraits of one knight character in matching colours](docs/images/example-knight-atlas.png)
+
+## Which model
+
+Same design and seed, one full character, RTX 4080 SUPER 16 GB:
+
+| Model | Time | Gate retries | Result |
+|---|---|---|---|
+| **Flux.2 Klein 4B fp8** (default) | about 4-5 min | 0-14 | one identity everywhere, torso pieces keep the clothing |
+| Qwen Image 2.1 turbo int8 | 20 min 40 s | 18 | heads match, torso pieces come out as thin tabard strips |
+| Anima only | 10 min 45 s | 0 | off-model: knight busts as heads, full figures in body boxes |
+
+*Anima only* needs no download but cannot keep one identity across the pieces (each box is a separate
+drawing); treat it as a fallback.
+
+## Commands
+
+| Need | Command |
+|---|---|
+| Start the app (browser UI) | `START.bat` (or `python app/server.py`; `--no-browser` to skip opening a tab) |
+| One character from the command line, no browser | `py -3 tools/bench.py klein --design "your text" [--master design.png] [--seed 5] [--out DIR]` |
+| The settings sweeps behind docs/TUNING.md | `py -3 tools/tune.py master sampler` |
+| Offline tests (fake SwarmUI, synthetic template) | `python -m pytest` |
+| Self-test plus the server guard, as plain text | `python tests/selftest.py` |
+
+![Terminal: python tests/selftest.py passes all 12 self-tests (timed-out render interrupts SwarmUI, export writes painting and xml, master upload validated, settings migration, backend restart) and all 14 server guard checks, including foreign host refused, cross-site post refused, open refuses a file and traversal blocked](docs/presentation/screenshot-tests.png)
 
 ## How it works
 
@@ -110,7 +125,9 @@ The whole painted atlas for one character (the template's artwork around the box
 - `app/engine.py` - template discovery, SwarmUI client (restarts an errored backend, times out and interrupts a
   stalled render), job runner, `painting.png` + `pbp.xml` writer.
 - `app/magics.py` - the `<magictype>` table (indexes verified against the shipped template and the game exe).
-- `app/server.py` - local HTTP/JSON server (binds 127.0.0.1 only).
+- `app/server.py` - local HTTP/JSON server. It binds to 127.0.0.1, refuses requests that do not come from its
+  own page (foreign `Host` or `Origin`), reads files only from its own folders, and opens or copies only
+  PBP Studio folders.
 - `docs/HOW-IT-WAS-MADE.txt` - the format research and design notes; `docs/TUNING.md` - the measured sweeps.
 - `tests/` - offline tests (fake SwarmUI on a synthetic template): `python -m pytest`.
 
@@ -127,3 +144,5 @@ from `castlecrashers.com`, and caches it in `%LOCALAPPDATA%\PBP-Studio`.
 - Job logs are in the UI; rejected generations and the master design are kept in
   `%LOCALAPPDATA%\PBP-Studio\jobs\<id>\`.
 - Castle Crashers and Painter Boss Paradise are (c) The Behemoth. This is an unofficial fan tool.
+
+See [CHANGELOG.md](CHANGELOG.md) for every release.

@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.9.3 - template fix and a locked-down local server
+- **The official template is accepted.** The template check wanted the first head box to be white, but the
+  official `painting.png` leaves the draw boxes transparent, so every download ended in
+  "Downloaded template failed validation" and a job could not start without another template copy.
+  Transparent or white boxes now both count; a filled box or the wrong size is still rejected (new test).
+- **Only the PBP Studio page can use the local API.** Every request must carry the app's own `Host`
+  (`127.0.0.1` / `localhost` on its port) and, when the browser sends one, its own `Origin`. Before, any web page
+  open in the same browser could post to the API (change settings, open folders, copy files into the game) and a
+  DNS-rebinding page could read it.
+- **Open folder opens folders only, and only PBP Studio ones** (the output folder, the last job's export folder or
+  the app data folder). It used to pass any existing path to the shell, which runs a file instead of opening it.
+  The UI saves the folder in the box as the output folder first, the same as *Pick*, and shows an error instead of
+  failing silently.
+- **Install into game** copies only from the last job's export folder or another PBP Studio folder, and the
+  character name can no longer point the copy outside `data/pbplocal`.
+- File paths are normalised and prefix-checked before every read (the code-scanning path-injection and
+  header-splitting alerts), content types come from a fixed table, and the CI workflow token is read-only.
+- Requirements and docs now say **Python 3.11+**: Pillow 13 needs it.
+- README rewritten with a cover, a real screenshot of the app, and the test output; deep detail stays below.
+
 ## 0.9.2 - repository refresh
 No behaviour change; the shipped README and docs now describe the current pipeline.
 - README rewritten (status, requirements, model table, run steps, real example images of generated characters

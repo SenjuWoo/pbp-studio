@@ -2,7 +2,6 @@
 # Serves the UI, wraps the engine as a small JSON API, and streams job status +
 # live preview images to the page. Binds to 127.0.0.1 only.
 import json
-import mimetypes
 import os
 import socket
 import subprocess
@@ -26,6 +25,17 @@ PORT = int(os.environ.get("PBP_PORT", "8777"))
 engine = Engine()
 _server_started = threading.Event()
 
+# Only the app's own page may talk to the API. Any web page the user has open can send a
+# "simple" POST to 127.0.0.1 (no CORS preflight), and a DNS-rebinding page can reach it under
+# a foreign host name, so every request must carry our own Host and, when present, Origin.
+_LOCAL_HOSTS = ("127.0.0.1", "localhost")
+
+# Content types for the files the UI loads; anything else is served as raw bytes.
+_CTYPES = {".html": "text/html", ".js": "text/javascript", ".css": "text/css",
+           ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+           ".webp": "image/webp", ".svg": "image/svg+xml", ".json": "application/json",
+           ".xml": "application/xml", ".txt": "text/plain", ".ico": "image/x-icon"}
+
 
 def allowed_roots():
     roots = [APP_DATA.resolve(), STATIC_DIR.resolve()]
@@ -43,6 +53,30 @@ def allowed_roots():
             roots.append(Path(t).resolve().parent)
         except Exception:
             pass
+    return roots
+
+
+def contained(p, roots):
+    """Real path of p when it lies inside one of roots, else None.
+
+    Normalise first, then prefix-check against each normalised root: that is the guard that
+    stops "..", symlinks and absolute paths from escaping, and the one CodeQL recognises."""
+    full = os.path.realpath(str(p))
+    for root in roots:
+        base = os.path.realpath(str(root))
+        if full == base or full.startswith(base.rstrip("\\/") + os.sep):
+            return full
+    return None
+
+
+def job_roots():
+    """allowed_roots() plus the folder the last finished job exported to (it may be a folder the
+    user typed for that run without saving it as the default)."""
+    roots = allowed_roots()
+    job = engine.job
+    export_dir = (getattr(job, "result", None) or {}).get("export_dir") if job else None
+    if export_dir:
+        roots.append(Path(export_dir))
     return roots
 
 
@@ -65,15 +99,24 @@ class Handler(BaseHTTPRequestHandler):
     def _err(self, msg, code=400):
         self._json({"error": str(msg)}, code)
 
+    def _local_request(self):
+        """True when the request comes from the app's own page (see _LOCAL_HOSTS)."""
+        allowed = {f"{h}:{PORT}" for h in _LOCAL_HOSTS}
+        if (self.headers.get("Host") or "").lower() not in allowed:
+            return False
+        origin = self.headers.get("Origin")
+        return origin is None or origin.lower() in {f"http://{a}" for a in allowed}
+
     def _file(self, path: Path, cache=False):
         try:
-            path = path.resolve()
-            if not any(path.is_relative_to(r) for r in allowed_roots()):
+            safe = contained(path, allowed_roots())
+            if safe is None:
                 return self._err("path not allowed", 403)
-            data = path.read_bytes()
+            with open(safe, "rb") as fh:
+                data = fh.read()
         except Exception as e:
             return self._err(e, 404)
-        ctype = mimetypes.guess_type(str(path))[0] or "application/octet-stream"
+        ctype = _CTYPES.get(os.path.splitext(safe)[1].lower(), "application/octet-stream")
         try:
             self.send_response(200)
             self.send_header("Content-Type", ctype)
@@ -92,6 +135,8 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
         q = urllib.parse.parse_qs(parsed.query)
+        if not self._local_request():
+            return self._err("forbidden: request did not come from the PBP Studio page", 403)
         try:
             if path in ("/", "/index.html"):
                 return self._file(STATIC_DIR / "index.html")
@@ -118,6 +163,8 @@ class Handler(BaseHTTPRequestHandler):
     # ---------------- POST ----------------
     def do_POST(self):
         parsed = urllib.parse.urlparse(self.path)
+        if not self._local_request():
+            return self._err("forbidden: request did not come from the PBP Studio page", 403)
         try:
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length) or b"{}")
@@ -152,14 +199,20 @@ class Handler(BaseHTTPRequestHandler):
                 p = pick_folder()
                 return self._json({"path": p or ""})
             if parsed.path == "/api/open-folder":
-                p = Path(body.get("path", ""))
-                if p.exists():
+                # folders only (os.startfile on a file would run it), and only the app's own ones
+                safe = contained(body.get("path", ""), job_roots())
+                if safe is None:
+                    return self._err("only the output folder or a PBP Studio folder can be opened", 403)
+                if os.path.isdir(safe):
                     if sys.platform == "win32":
-                        os.startfile(str(p))  # noqa: S606
+                        os.startfile(safe)  # noqa: S606
                     return self._json({"ok": True})
                 return self._err("folder does not exist")
             if parsed.path == "/api/install-to-game":
-                return self._json(install_to_game(body))
+                try:
+                    return self._json(install_to_game(body))
+                except PermissionError as e:
+                    return self._err(e, 403)
             if parsed.path == "/api/redownload-template":
                 try:
                     settings = load_settings()
@@ -213,22 +266,32 @@ def save_master(data_url):
 
 
 def install_to_game(body):
-    """Copy a finished PBP folder into the game's own data/pbplocal/<slug>/ so it lives with the game."""
-    src = Path(body.get("source_dir", ""))
-    name = slugify(body.get("name", "") or src.name)
-    if not (src / "painting.png").exists():
+    """Copy a finished PBP folder into the game's own data/pbplocal/<slug>/ so it lives with the game.
+
+    The source must be the last job's export folder or another PBP Studio folder, and the
+    destination must stay inside data/pbplocal."""
+    src = contained(body.get("source_dir", ""), job_roots())
+    if src is None:
+        raise PermissionError("source folder is not a PBP Studio output folder")
+    name = slugify(body.get("name", "") or os.path.basename(src))
+    if not os.path.isfile(os.path.join(src, "painting.png")):
         raise RuntimeError("source folder has no painting.png")
     game = find_game_dir()
     if not game:
         raise RuntimeError("Castle Crashers install not found")
-    dst = Path(game) / "data" / "pbplocal" / name
-    dst.mkdir(parents=True, exist_ok=True)
+    base = Path(game) / "data" / "pbplocal"
+    dst = contained(base / name, [base])
+    if dst is None or dst == os.path.realpath(base):
+        raise PermissionError("character name does not make a folder inside data/pbplocal")
+    os.makedirs(dst, exist_ok=True)
     for f in ("painting.png", "pbp.xml"):
-        if (src / f).exists():
-            tmp = dst / (f + ".tmp")
-            tmp.write_bytes((src / f).read_bytes())
-            os.replace(tmp, dst / f)
-    return {"ok": True, "installed_to": str(dst)}
+        sf = os.path.join(src, f)
+        if os.path.isfile(sf):
+            tmp = os.path.join(dst, f + ".tmp")
+            with open(sf, "rb") as fin, open(tmp, "wb") as fout:
+                fout.write(fin.read())
+            os.replace(tmp, os.path.join(dst, f))
+    return {"ok": True, "installed_to": dst}
 
 
 def _port_open():

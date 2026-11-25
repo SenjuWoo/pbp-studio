@@ -39,6 +39,33 @@ def _template():
     return t
 
 
+def test_template_check_accepts_transparent_and_white_draw_boxes():
+    """The official template has transparent draw boxes (it was rejected as 'failed validation')."""
+    import engine
+
+    with tempfile.TemporaryDirectory() as td:
+        transparent = Path(td) / "official.png"
+        _template().save(transparent)
+        assert engine._valid_template(transparent)
+
+        white = _template()
+        d = ImageDraw.Draw(white)
+        for r in REGIONS:
+            x, y, w, h = r["rect"]
+            d.rectangle([x, y, x + w - 1, y + h - 1], fill=(255, 255, 255, 255))
+        white_path = Path(td) / "white.png"
+        white.save(white_path)
+        assert engine._valid_template(white_path)
+
+        filled = Path(td) / "filled.png"
+        Image.new("RGBA", (TEMPLATE_SIZE, TEMPLATE_SIZE), (90, 30, 30, 255)).save(filled)
+        assert not engine._valid_template(filled)
+
+        small = Path(td) / "small.png"
+        _template().resize((1024, 1024)).save(small)
+        assert not engine._valid_template(small)
+
+
 def test_region_map_is_exact_grid():
     assert len(REGIONS) == 39
     assert len({r["part"] for r in REGIONS}) == 39 and len({r["rect"] for r in REGIONS}) == 39

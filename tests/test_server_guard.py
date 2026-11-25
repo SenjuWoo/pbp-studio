@@ -72,6 +72,35 @@ def main():
 
         checks.append(("outside path blocked", code("/api/file?p=" + urllib.parse.quote(r"C:/Windows/win.ini")) == 403))
 
+        def raw(method, path, body=None, headers=None):
+            """One request with exact headers (urllib would add its own Host)."""
+            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+            data = json.dumps(body).encode() if body is not None else None
+            conn.request(method, path, body=data, headers=headers or {})
+            status = conn.getresponse().status
+            conn.close()
+            return status
+
+        own = {"Host": f"127.0.0.1:{port}", "Content-Type": "application/json"}
+        # another web page (CSRF) or a rebound host name must not reach the API
+        checks.append(("foreign host refused", raw("GET", "/api/status", headers={"Host": f"evil.example:{port}"}) == 403))
+        checks.append(("cross-site post refused", raw("POST", "/api/settings", {},
+                                                     {**own, "Origin": "http://evil.example"}) == 403))
+        checks.append(("same-origin post allowed", raw("POST", "/api/check-backend", {},
+                                                      {**own, "Origin": f"http://127.0.0.1:{port}"}) == 200))
+        # open-folder and install-to-game only touch PBP Studio folders, and never run a file
+        checks.append(("open outside folder refused", raw("POST", "/api/open-folder",
+                                                         {"path": "C:/pbp-guard-test-not-a-folder"}, own) == 403))
+        with tempfile.NamedTemporaryFile(dir=APP_DATA, suffix=".txt", delete=False) as f:
+            inside_file = Path(f.name)
+        try:
+            checks.append(("open refuses a file", raw("POST", "/api/open-folder",
+                                                     {"path": str(inside_file)}, own) == 400))
+        finally:
+            inside_file.unlink(missing_ok=True)
+        checks.append(("install from outside refused", raw("POST", "/api/install-to-game",
+                                                          {"source_dir": "C:/Windows", "name": "x"}, own) == 403))
+
         # a second instance must not double-bind: it reports the running one and exits cleanly
         second = subprocess.run([sys.executable, str(APP / "server.py"), "--no-browser"],
                                 env=env, capture_output=True, text=True, timeout=30)

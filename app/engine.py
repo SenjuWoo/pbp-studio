@@ -24,7 +24,7 @@ from regions import REGIONS, TEMPLATE_SIZE
 from magics import magic_number
 
 APP_NAME = "PBP-Studio"
-APP_VERSION = "0.9.2"
+APP_VERSION = "0.9.3"
 APP_DATA = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / APP_NAME
 SETTINGS_FILE = APP_DATA / "settings.json"
 TEMPLATE_CACHE = APP_DATA / "template" / "painting.png"
@@ -122,11 +122,12 @@ def _valid_template(path: Path):
         im = Image.open(path)
         if im.size != (TEMPLATE_SIZE, TEMPLATE_SIZE):
             return False
-        # spot-check: the first head box should be mostly white (draw area)
+        # spot-check: the first head box is a draw area. The official template leaves it
+        # transparent; older copies have it white. Either counts, a filled box does not.
         x, y, w, h = REGIONS[0]["rect"]
-        crop = im.convert("RGB").crop((x, y, x + w, y + h))
-        px = np.asarray(crop)
-        return float((px.min(axis=2) > 200).mean()) > 0.3
+        px = np.asarray(im.convert("RGBA").crop((x, y, x + w, y + h)))
+        drawable = (px[..., 3] < 10) | (px[..., :3].min(axis=2) > 200)
+        return float(drawable.mean()) > 0.3
     except Exception:
         return False
 

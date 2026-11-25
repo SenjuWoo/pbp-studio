@@ -86,8 +86,17 @@ $("btn-pick").onclick = async () => {
   const r = await api("/api/pick-folder", {});
   if (r.path) { $("output_dir").value = r.path; persistSettings(); }
 };
-$("btn-open").onclick = () => api("/api/open-folder", { path: $("output_dir").value });
-$("btn-open-out").onclick = () => api("/api/open-folder", { path: $("output_dir").value });
+// The server opens only PBP Studio folders, so the folder in the box is saved as the output
+// folder first (the same as choosing it with "Pick").
+async function openOutputFolder() {
+  const path = $("output_dir").value.trim();
+  try {
+    if (path) await api("/api/settings", { output_dir: path });
+    await api("/api/open-folder", { path });
+  } catch (e) { alert("Could not open the folder: " + e.message); }
+}
+$("btn-open").onclick = openOutputFolder;
+$("btn-open-out").onclick = openOutputFolder;
 
 $("btn-settings").onclick = () => {
   const card = $("settings-card");
